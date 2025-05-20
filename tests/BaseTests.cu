@@ -163,6 +163,28 @@ TEST_F(BaseTest, solves_linear_system) {
     for (int i = 0; i < n; i++) {
         EXPECT_FLOAT_EQ(res[i], expected[i]);
     }
+
+    n = 2;
+    thrust::device_vector<float> A_2 = {2, 1, -1, 1};
+    thrust::device_vector<float> b_2 = {1, 5};
+
+    solve_linear_system(
+        n,
+        A_2,
+        b_2,
+        res,
+        handle,
+        params,
+        host_buffer,
+        host_size,
+        device_buffer,
+        device_size);
+    thrust::device_vector<float> expected_2 = {2, 3};
+    cudaDeviceSynchronize();
+    for (int i = 0; i < n; i++)
+    {
+        EXPECT_FLOAT_EQ(res[i], expected_2[i]);
+    }
 }
 
 TEST_F(BaseTest, allocates_u) {

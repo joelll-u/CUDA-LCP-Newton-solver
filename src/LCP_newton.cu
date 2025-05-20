@@ -50,6 +50,8 @@ void submatrix(int N, thrust::device_vector<float> &M, thrust::device_vector<int
 
 void alpha_set(int N, thrust::device_vector<float> &z1, thrust::device_vector<float> &z2, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma)
 {
+    alpha.clear();
+    gamma.clear();
     thrust::stable_partition_copy(
         thrust::counting_iterator<int>(0),
         thrust::counting_iterator<int>(N),
@@ -86,6 +88,7 @@ bool norm_termination_test(int N, thrust::device_vector<float> &z, thrust::devic
 
 void solve_linear_system(int N, thrust::device_vector<float> &A, thrust::device_vector<float> &b, thrust::device_vector<float> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size)
 {
+    res.clear();
     res.resize(N);
     cudaDataType_t type = CUDA_R_32F;
 
@@ -282,7 +285,7 @@ void get_next_iter(int N, thrust::device_vector<float> &z, thrust::device_vector
 {
     res.resize(N);
     float tau = 1.0;
-    for (int i = 0; i < 100; i++){
+    for (int i = 0; i < 1000; i++){
         thrust::copy(z.begin(), z.end(), res.begin());
         auto idx = thrust::find(rhos.begin(), rhos.end(), tau);
         if (idx != rhos.end()) {
@@ -297,7 +300,7 @@ void get_next_iter(int N, thrust::device_vector<float> &z, thrust::device_vector
         eval_linear(N, M, q, res, wv, handle);
         float merit_zv = get_merit(N, res, wv, handle);
         // printf("new merit: %f\n", merit_zv);
-        if ((1-tau*xi)*current_merit > merit_zv) {
+        if (current_merit - (tau*xi*current_merit) > merit_zv) {
             printf("tau: %f\n", tau);
             return;
         }
@@ -308,7 +311,7 @@ void get_next_iter(int N, thrust::device_vector<float> &z, thrust::device_vector
 
 int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<float> &q, thrust::device_vector<float> &z0, float epsilon, float xi, float sigma0, float sigma1, thrust::device_vector<float> &res) 
 {
-    int max_iters = 100;
+    int max_iters = 10;
     res.resize(N);
     cublasHandle_t handle;
     cublasStatus_t status = cublasCreate(&handle);
@@ -317,6 +320,18 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
         printf("CUBLAS initialization failed: %d\n", status);
         return 1;
     }
+    printf("M:\n");
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%f ", (float) M[i * N + j]);
+        }
+        printf("\n");
+    }
+    printf("q:\n");
+    for (int i = 0; i < N; i++) {
+        printf("%f ", (float) q[i]);
+    }
+    printf("\n");
 
     cusolverDnHandle_t solver_handle;
     cusolverDnParams_t solver_params;
@@ -357,13 +372,13 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
 
     for (int v = 0; v < max_iters; v++)
     {
-        // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (float) z_v[i]);}; printf("\n");
+        printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (float) z_v[i]);}; printf("\n");
         // 1.check for termination
 
         eval_linear(N, M, q, z_v, w, handle);
-        // printf("w: "); for(int i = 0; i < N; i++) {printf("%f ", (float) w[i]);}; printf("\n");
+        printf("w: "); for(int i = 0; i < N; i++) {printf("%f ", (float) w[i]);}; printf("\n");
         float merit = get_merit(N, z_v, w, handle);
-        // printf("merit: %f\n", merit);
+         printf("merit: %f\n", merit);
         if (merit < epsilon)
         {
             thrust::copy(z_v.begin(), z_v.end(), res.begin());
@@ -377,6 +392,24 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
 
         submatrix(N, M, alpha, M_alpha);
         subvector(N, q, alpha, q_alpha);
+
+        // printf("alpha: "); for (int i = 0; i < alpha.size(); i++) {printf("%d ", (int) alpha[i]);}; printf("\n");
+        // printf("M_alpha:\n");
+        // for (int i = 0; i < alpha.size(); i++)
+        // {
+        //     for (int j = 0; j < alpha.size(); j++)
+        //     {
+        //         printf("%f ", (float)M_alpha[i * alpha.size() + j]);
+        //     }
+        //     printf("\n");
+        // }
+        // printf("q:\n");
+        // for (int i = 0; i < alpha.size(); i++)
+        // {
+        //     printf("%f ", (float)q_alpha[i]);
+        // }
+        // printf("\n");
+
 
         thrust::device_vector<float> u_alpha;
         solve_linear_system(
@@ -396,10 +429,10 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
 
         thrust::device_vector<float> u;
         scatter_vector(N, u_alpha, alpha, u);
-        // printf("u: "); for(int i = 0; i < N; i++) {printf("%f ", (float) u[i]);}; printf("\n");
+         printf("u: "); for(int i = 0; i < N; i++) {printf("%f ", (float) u[i]);}; printf("\n");
         thrust::device_vector<float> phi;
         eval_linear(N, M, q, u, phi, handle);
-        // printf("phi: "); for(int i = 0; i < N; i++) {printf("%f ", (float) phi[i]);}; printf("\n");
+        //  printf("phi: "); for(int i = 0; i < N; i++) {printf("%f ", (float) phi[i]);}; printf("\n");
         //3. check for termination
         if (solve_termination_test(N, u, phi, epsilon, handle))
         {
@@ -415,7 +448,7 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
         thrust::device_vector<float> old_z(N);
         thrust::copy(z_v.begin(), z_v.end(), old_z.begin());
         get_next_iter(N, old_z, M, q, u, rhos, handle, merit, xi, sigma0, sigma1, z_v);
-        // printf("-----------\n");
+        printf("-----------\n");
     }
     return 1;
 }
