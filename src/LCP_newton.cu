@@ -3,18 +3,18 @@
 
 using namespace std;
 
-float get_merit(int N, thrust::device_vector<float> &z, thrust::device_vector<float> &w, cublasHandle_t &handle)
+double get_merit(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, cublasHandle_t &handle)
 {
-    thrust::device_vector<float> res(N);
+    thrust::device_vector<double> res(N);
 
     elementwise_min(N, z, w, res);
 
-    float nrm = 0;
-    cublasSnrm2(handle, N, res.data().get(), 1, &nrm);
+    double nrm = 0;
+    cublasDnrm2(handle, N, res.data().get(), 1, &nrm);
     return nrm;
 }
 
-void subvector(int N, thrust::device_vector<float> &q, thrust::device_vector<int> &alpha, thrust::device_vector<float> &q_alpha)
+void subvector(int N, thrust::device_vector<double> &q, thrust::device_vector<int> &alpha, thrust::device_vector<double> &q_alpha)
 {
     int k = alpha.size();
     q_alpha.resize(k);
@@ -22,7 +22,7 @@ void subvector(int N, thrust::device_vector<float> &q, thrust::device_vector<int
     thrust::gather(alpha.begin(), alpha.end(), q.begin(), q_alpha.begin());
 }
 
-void submatrix(int N, thrust::device_vector<float> &M, thrust::device_vector<int> &alpha, thrust::device_vector<float> &M_alpha)
+void submatrix(int N, thrust::device_vector<double> &M, thrust::device_vector<int> &alpha, thrust::device_vector<double> &M_alpha)
 {
     int k = alpha.size();
     M_alpha.resize(k * k);
@@ -48,7 +48,7 @@ void submatrix(int N, thrust::device_vector<float> &M, thrust::device_vector<int
     thrust::gather(gather_indices.begin(), gather_indices.end(), M.begin(), M_alpha.begin());
 }
 
-void alpha_set(int N, thrust::device_vector<float> &z1, thrust::device_vector<float> &z2, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma)
+void alpha_set(int N, thrust::device_vector<double> &z1, thrust::device_vector<double> &z2, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma)
 {
     alpha.clear();
     gamma.clear();
@@ -61,40 +61,40 @@ void alpha_set(int N, thrust::device_vector<float> &z1, thrust::device_vector<fl
     );
 }
 
-void elementwise_min(int N, thrust::device_vector<float> &z1, thrust::device_vector<float> &z2, thrust::device_vector<float> &res)
+void elementwise_min(int N, thrust::device_vector<double> &z1, thrust::device_vector<double> &z2, thrust::device_vector<double> &res)
 {
     res.resize(N);
-    thrust::transform(z1.begin(), z1.end(), z2.begin(), res.begin(), thrust::minimum<float>());
+    thrust::transform(z1.begin(), z1.end(), z2.begin(), res.begin(), thrust::minimum<double>());
 }
 
-void eval_linear(int N, thrust::device_vector<float> &M, thrust::device_vector<float> &q, thrust::device_vector<float> &z, thrust::device_vector<float> &res, cublasHandle_t &handle)
+void eval_linear(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z, thrust::device_vector<double> &res, cublasHandle_t &handle)
 {
     res.resize(N);
-    float alpha = 1.0;
-    float beta = 1.0;
+    double alpha = 1.0;
+    double beta = 1.0;
     thrust::copy(q.begin(), q.end(), res.begin());
-    // printf("res: "); for(int i = 0; i < N; i++) {printf("%f ", (float) res[i]);}; printf("\n");
-    // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (float) z[i]);}; printf("\n");
-    cublasSgemv(handle, CUBLAS_OP_N, N, N, &alpha, thrust::raw_pointer_cast(M.data()), N, thrust::raw_pointer_cast(z.data()), 1, &beta, thrust::raw_pointer_cast(res.data()), 1);
+    // printf("res: "); for(int i = 0; i < N; i++) {printf("%f ", (double) res[i]);}; printf("\n");
+    // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z[i]);}; printf("\n");
+    cublasDgemv(handle, CUBLAS_OP_N, N, N, &alpha, thrust::raw_pointer_cast(M.data()), N, thrust::raw_pointer_cast(z.data()), 1, &beta, thrust::raw_pointer_cast(res.data()), 1);
 
     return;
 }
 
-bool norm_termination_test(int N, thrust::device_vector<float> &z, thrust::device_vector<float> &w, float epsilon, cublasHandle_t &handle)
+bool norm_termination_test(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, double epsilon, cublasHandle_t &handle)
 {
-    float nrm = get_merit(N, z, w, handle);
+    double nrm = get_merit(N, z, w, handle);
     return nrm <= epsilon;
 }
 
-void solve_linear_system(int N, thrust::device_vector<float> &A, thrust::device_vector<float> &b, thrust::device_vector<float> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size)
+void solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size)
 {
     res.clear();
     res.resize(N);
-    cudaDataType_t type = CUDA_R_32F;
+    cudaDataType_t type = CUDA_R_64F;
 
-    float *A_cpy;
-    cudaMalloc(&A_cpy, sizeof(float) * A.size());
-    cudaMemcpy(A_cpy, A.data().get(), sizeof(float) * A.size(), cudaMemcpyDeviceToDevice);
+    double *A_cpy;
+    cudaMalloc(&A_cpy, sizeof(double) * A.size());
+    cudaMemcpy(A_cpy, A.data().get(), sizeof(double) * A.size(), cudaMemcpyDeviceToDevice);
 
     int64_t *d_ipiv;
     cudaMalloc(&d_ipiv, sizeof(int64_t) * N);
@@ -174,15 +174,15 @@ void setup_solver(int N, cusolverDnHandle_t &handle, void* &host_buffer, size_t 
     return;
 }
 
-void scatter_vector(int N, thrust::device_vector<float> &u_alpha, thrust::device_vector<int> &alpha, thrust::device_vector<float> &res) {
+void scatter_vector(int N, thrust::device_vector<double> &u_alpha, thrust::device_vector<int> &alpha, thrust::device_vector<double> &res) {
     res.resize(N);
     thrust::scatter(u_alpha.begin(), u_alpha.end(), alpha.begin(), res.begin());
 
     return;
 }
 
-bool solve_termination_test(int N, thrust::device_vector<float> &u, thrust::device_vector<float> &phi, float epsilon, cublasHandle_t &handle) {
-    auto negative = [] __device__ (float x) {return x < 0;};
+bool solve_termination_test(int N, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, double epsilon, cublasHandle_t &handle) {
+    auto negative = [] __device__ (double x) {return x < 0;};
 
     bool u_negative = thrust::any_of(
         u.begin(),
@@ -202,8 +202,8 @@ bool solve_termination_test(int N, thrust::device_vector<float> &u, thrust::devi
 }
 
 struct is_negative {
-    const float* u;
-    is_negative(const float* _u): u(_u){}
+    const double* u;
+    is_negative(const double* _u): u(_u){}
 
     __device__ bool operator()(int i)
     {
@@ -212,32 +212,32 @@ struct is_negative {
 };
 
 struct rho_i {
-    const float* z;
-    const float* w;
-    const float* u;
+    const double* z;
+    const double* w;
+    const double* u;
 
-    rho_i(const float* _u, const float* _w, const float* _z): u(_u), w(_w), z(_z) {}
+    rho_i(const double* _u, const double* _w, const double* _z): u(_u), w(_w), z(_z) {}
 
-    __device__ float operator()(int i)
+    __device__ double operator()(int i)
     {
         return (z[i]- w[i])/ ((z[i] - w[i]) - u[i]);
     }
 };
 
 struct rho_j {
-    const float* z;
-    const float* w;
-    const float* phi;
+    const double* z;
+    const double* w;
+    const double* phi;
 
-    rho_j(const float* _z, const float* _w, const float* _phi): z(_z), w(_w), phi(_phi) {}
+    rho_j(const double* _z, const double* _w, const double* _phi): z(_z), w(_w), phi(_phi) {}
 
-    __device__ float operator()(int i)
+    __device__ double operator()(int i)
     {
         return (w[i] - z[i])/ (w[i] - z[i]- phi[i]);
     }
 };
 
-void get_rhos(int N, thrust::device_vector<float> &z, thrust::device_vector<float> &u, thrust::device_vector<float> &phi, thrust::device_vector<float> &w, thrust::device_vector<int> &gamma, thrust::device_vector<int> &alpha, thrust::device_vector<float> &rhos)
+void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &w, thrust::device_vector<int> &gamma, thrust::device_vector<int> &alpha, thrust::device_vector<double> &rhos)
 {
     thrust::device_vector<int> is(alpha.size());
     auto final = thrust::copy_if(
@@ -273,19 +273,19 @@ void get_rhos(int N, thrust::device_vector<float> &z, thrust::device_vector<floa
     );
 }
 
-// bool valid_dir(int N, thrust::device_vector<float> &z, thrust::device_vector<float> &M, thrust::device_vector<float> &q, thrust::device_vector<float> &d, thrust::device_vector<float> rhos, float xi) 
+// bool valid_dir(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &d, thrust::device_vector<double> rhos, double xi) 
 // {
-//     thrust::device_vector<float> w_tau;
+//     thrust::device_vector<double> w_tau;
 //     eval_linear(N, M, q, z, w_tau, handle);
 
 
 // }
 
-void get_next_iter(int N, thrust::device_vector<float> &z, thrust::device_vector<float> &M, thrust::device_vector<float> &q, thrust::device_vector<float> &u, thrust::device_vector<float> &rhos, cublasHandle_t &handle, float current_merit, float xi, float sigma1, float sigma2, thrust::device_vector<float> &res)
+void get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma1, double sigma2, thrust::device_vector<double> &res)
 {
     res.resize(N);
-    float tau = 1.0;
-    for (int i = 0; i < 1000; i++){
+    double tau = 1.0;
+    for (int i = 0; i < 100; i++){
         thrust::copy(z.begin(), z.end(), res.begin());
         auto idx = thrust::find(rhos.begin(), rhos.end(), tau);
         if (idx != rhos.end()) {
@@ -293,25 +293,25 @@ void get_next_iter(int N, thrust::device_vector<float> &z, thrust::device_vector
             continue;
         
         }
-        float x = 1 - tau;
-        cublasSscal(handle, N, &x, res.data().get(), 1);
-        cublasSaxpy(handle, N, &tau, u.data().get(), 1, res.data().get(), 1);
-        thrust::device_vector<float> wv;
+        double x = 1 - tau;
+        cublasDscal(handle, N, &x, res.data().get(), 1);
+        cublasDaxpy(handle, N, &tau, u.data().get(), 1, res.data().get(), 1);
+        thrust::device_vector<double> wv;
         eval_linear(N, M, q, res, wv, handle);
-        float merit_zv = get_merit(N, res, wv, handle);
+        double merit_zv = get_merit(N, res, wv, handle);
         // printf("new merit: %f\n", merit_zv);
         if (current_merit - (tau*xi*current_merit) > merit_zv) {
-            printf("tau: %f\n", tau);
+            // printf("tau: %f\n", tau);
             return;
         }
         tau *= sigma2;
     }
-    printf("xxxx\n");
+    // printf("xxxx\n");
 }
 
-int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<float> &q, thrust::device_vector<float> &z0, float epsilon, float xi, float sigma0, float sigma1, thrust::device_vector<float> &res) 
+int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res) 
 {
-    int max_iters = 10;
+    int max_iters = 100;
     res.resize(N);
     cublasHandle_t handle;
     cublasStatus_t status = cublasCreate(&handle);
@@ -320,18 +320,18 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
         printf("CUBLAS initialization failed: %d\n", status);
         return 1;
     }
-    printf("M:\n");
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            printf("%f ", (float) M[i * N + j]);
-        }
-        printf("\n");
-    }
-    printf("q:\n");
-    for (int i = 0; i < N; i++) {
-        printf("%f ", (float) q[i]);
-    }
-    printf("\n");
+    // printf("M:\n");
+    // for (int i = 0; i < N; i++) {
+    //     for (int j = 0; j < N; j++) {
+    //         printf("%f ", (double) M[i * N + j]);
+    //     }
+    //     printf("\n");
+    // }
+    // printf("q:\n");
+    // for (int i = 0; i < N; i++) {
+    //     printf("%f ", (double) q[i]);
+    // }
+    // printf("\n");
 
     cusolverDnHandle_t solver_handle;
     cusolverDnParams_t solver_params;
@@ -343,19 +343,19 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
     setup_solver(N, solver_handle, host_buffer, host_buffer_size, device_buffer, device_buffer_size, solver_params);
 
 
-    thrust::device_vector<float> z_v(N);
+    thrust::device_vector<double> z_v(N);
     thrust::copy(z0.begin(), z0.end(), z_v.begin());
 
-    thrust::device_vector<float> w;
+    thrust::device_vector<double> w;
     w.reserve(N);
 
-    thrust::device_vector<float> u;
+    thrust::device_vector<double> u;
     u.reserve(N);
 
-    thrust::device_vector<float> phi;
+    thrust::device_vector<double> phi;
     phi.reserve(N);
 
-    thrust::device_vector<float> old_z;
+    thrust::device_vector<double> old_z;
     old_z.reserve(N);
 
     thrust::device_vector<int> alpha;
@@ -364,21 +364,21 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
     thrust::device_vector<int> gamma;
     gamma.reserve(N);
     
-    thrust::device_vector<float> M_alpha;
+    thrust::device_vector<double> M_alpha;
     M_alpha.reserve(N*N);
 
-    thrust::device_vector<float> q_alpha;
+    thrust::device_vector<double> q_alpha;
     q_alpha.reserve(N);
 
     for (int v = 0; v < max_iters; v++)
     {
-        printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (float) z_v[i]);}; printf("\n");
+        // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
         // 1.check for termination
 
         eval_linear(N, M, q, z_v, w, handle);
-        printf("w: "); for(int i = 0; i < N; i++) {printf("%f ", (float) w[i]);}; printf("\n");
-        float merit = get_merit(N, z_v, w, handle);
-         printf("merit: %f\n", merit);
+        // printf("w: "); for(int i = 0; i < N; i++) {printf("%f ", (double) w[i]);}; printf("\n");
+        double merit = get_merit(N, z_v, w, handle);
+        // printf("merit: %f\n", merit);
         if (merit < epsilon)
         {
             thrust::copy(z_v.begin(), z_v.end(), res.begin());
@@ -399,19 +399,19 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
         // {
         //     for (int j = 0; j < alpha.size(); j++)
         //     {
-        //         printf("%f ", (float)M_alpha[i * alpha.size() + j]);
+        //         printf("%f ", (double)M_alpha[i * alpha.size() + j]);
         //     }
         //     printf("\n");
         // }
         // printf("q:\n");
         // for (int i = 0; i < alpha.size(); i++)
         // {
-        //     printf("%f ", (float)q_alpha[i]);
+        //     printf("%f ", (double)q_alpha[i]);
         // }
         // printf("\n");
 
 
-        thrust::device_vector<float> u_alpha;
+        thrust::device_vector<double> u_alpha;
         solve_linear_system(
             alpha.size(),
             M_alpha, 
@@ -424,15 +424,15 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
             device_buffer, 
             device_buffer_size);
         
-        ::cuda::std::negate<float> minus;
+        ::cuda::std::negate<double> minus;
         thrust::transform(u_alpha.begin(), u_alpha.end(), u_alpha.begin(), minus);
 
-        thrust::device_vector<float> u;
+        thrust::device_vector<double> u;
         scatter_vector(N, u_alpha, alpha, u);
-         printf("u: "); for(int i = 0; i < N; i++) {printf("%f ", (float) u[i]);}; printf("\n");
-        thrust::device_vector<float> phi;
+        // printf("u: "); for(int i = 0; i < N; i++) {printf("%f ", (double) u[i]);}; printf("\n");
+        thrust::device_vector<double> phi;
         eval_linear(N, M, q, u, phi, handle);
-        //  printf("phi: "); for(int i = 0; i < N; i++) {printf("%f ", (float) phi[i]);}; printf("\n");
+        //  printf("phi: "); for(int i = 0; i < N; i++) {printf("%f ", (double) phi[i]);}; printf("\n");
         //3. check for termination
         if (solve_termination_test(N, u, phi, epsilon, handle))
         {
@@ -441,14 +441,14 @@ int LCP_Newton(int N, thrust::device_vector<float> &M, thrust::device_vector<flo
             return 0;
         }
         // 4.1 find rhos
-        thrust::device_vector<float> rhos;
+        thrust::device_vector<double> rhos;
         get_rhos(N, z_v, u, phi, w, gamma, alpha, rhos);
-        // printf("rho: "); for(int i = 0; i < rhos.size(); i++) {printf("%f ", (float) rhos[i]);}; printf("\n");
+        // printf("rho: "); for(int i = 0; i < rhos.size(); i++) {printf("%f ", (double) rhos[i]);}; printf("\n");
         //4.2 calculate z+1
-        thrust::device_vector<float> old_z(N);
+        thrust::device_vector<double> old_z(N);
         thrust::copy(z_v.begin(), z_v.end(), old_z.begin());
         get_next_iter(N, old_z, M, q, u, rhos, handle, merit, xi, sigma0, sigma1, z_v);
-        printf("-----------\n");
+        // printf("-----------\n");
     }
     return 1;
 }

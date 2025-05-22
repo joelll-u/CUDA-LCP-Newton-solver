@@ -1,7 +1,7 @@
 add_library(cuLCP_Newton SHARED LCP_newton.cu)
 
 # set_property(TARGET cuLCP_Newton PROPERTY CUDA_ARCHITECTURES native)
-set_property(TARGET cuLCP_Newton PROPERTY CUDA_ARCHITECTURES 80)
+set_property(TARGET cuLCP_Newton PROPERTY CUDA_ARCHITECTURES 75)
 
 target_link_libraries(cuLCP_Newton cublas Thrust cusolver)
 

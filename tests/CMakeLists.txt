@@ -14,7 +14,7 @@ add_executable(
 target_link_libraries(BaseTest GTest::gtest_main Thrust cuLCP_Newton cublas)
 target_include_directories(BaseTest PRIVATE ${PROJECT_SOURCE_DIR}/include)
 # set_property(TARGET example PROPERTY CUDA_ARCHITECTURES native)
-set_property(TARGET BaseTest PROPERTY CUDA_ARCHITECTURES 80)
+set_property(TARGET BaseTest PROPERTY CUDA_ARCHITECTURES 75)
 
 include(GoogleTest)
 gtest_discover_tests(BaseTest)

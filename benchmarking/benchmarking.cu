@@ -4,108 +4,42 @@
 #include <curand.h>
 #include <curand_kernel.h>
 #include <thrust/transform.h>
+#include <vector>
 
 #include "LCP_newton.hpp"
-
-struct add_diagonal_functor
-{
-    const float *diag;
-    int n;
-
-    add_diagonal_functor(const float *d, int n_) : diag(d), n(n_) {}
-
-    __host__ __device__ float operator()(const float &a, const int &idx) const
-    {
-        int row = idx % n;
-        int col = idx / n;
-        if (row == col)
-        {
-            return a + diag[row];
-        }
-        else
-        {
-            return a;
-        }
-    }
-};
-
-void add_diagonal_to_matrix(thrust::device_vector<float> &A, const thrust::device_vector<float> &diag, int n)
-{
-    thrust::counting_iterator<int> idx_first(0);
-    thrust::counting_iterator<int> idx_last = idx_first + n * n;
-
-    const float *d_ptr = thrust::raw_pointer_cast(diag.data());
-    thrust::transform(
-        A.begin(), A.end(),
-        idx_first,
-        A.begin(),
-        add_diagonal_functor(d_ptr, n));
-}
-
-struct RandomFunctor
-{
-    float a, b;
-    unsigned int seed;
-
-    __host__ __device__
-    RandomFunctor(float a, float b, unsigned int seed) : a(a), b(b), seed(seed) {}
-
-    __device__
-    float operator()(const int& i) const
-    {
-        curandState state;
-        curand_init(seed, i, 0, &state);
-
-        float r = curand_uniform(&state);
-        return a + (b - a) * r;
-    }
-};
-
-void generate_random_vector(int n, float a, float b, unsigned int &seed, thrust::device_vector<float> &res) {
-    res.resize(n);
-    thrust::transform(
-        thrust::counting_iterator<int>(0),
-        thrust::counting_iterator<int>(n),
-        res.begin(),
-        RandomFunctor(a, b, seed)
-    );
-    seed++;
-}
+#include "benchmarking_utils.cu"
+#include "path_utils.cpp"
+#include "cWrapper_Path.hpp"
 
 static void BM_cuLCP_SOLVER(benchmark::State &state) {
     int n = state.range(0);
 
-    float epsilon = 0.00001;
-    float sigma0 = 0.1;
-    float sigma1 = 0.75;
-    float xi = 0.25;
+    double epsilon = 0.00001;
+    double sigma0 = 0.1;
+    double sigma1 = 0.75;
+    double xi = 0.25;
 
     cublasHandle_t handle;
     cublasStatus_t status = cublasCreate(&handle);
 
     unsigned int seed = 0;
     for (auto _ : state) {
-        float one = 1.0;
         state.PauseTiming();
-        thrust::device_vector<float> M_unsymm;
-        generate_random_vector(n*n, -5, 5, seed, M_unsymm);
+        std::vector<double> M_host;
+        create_random_matrix(n, -5, 5, seed, M_host);
 
-        thrust::device_vector<float> q;
-        generate_random_vector(n, -500, 500, seed, q);
-
-        thrust::device_vector<float> etas;
-        generate_random_vector(n, 0, 0.3, seed, etas);
-
-        thrust::device_vector<float> M(n * n);
-        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, n, n, n, &one, thrust::raw_pointer_cast(M_unsymm.data()), n, thrust::raw_pointer_cast(M_unsymm.data()), n, &one, thrust::raw_pointer_cast(M.data()), n);
-
-        add_diagonal_to_matrix(M, etas, n);
-
-        thrust::device_vector<float> z(n);
-        thrust::device_vector<float> res;
+        std::vector<double> q_host;
+        create_random_vector(n, -500, 500, seed, q_host);
+        thrust::device_vector<double> z_0(n);
+        thrust::device_vector<double> res;
+        std::vector<double> res_host(n);
         state.ResumeTiming();
 
-        int status = LCP_Newton(n, M, q, z, epsilon, xi, sigma0, sigma1, res);
+        thrust::device_vector<double> M = M_host;
+        thrust::device_vector<double> q = q_host;
+
+        int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma0, sigma1, res);
+        thrust::copy(res.begin(), res.end(), res_host.begin());
         cudaDeviceSynchronize();
         if (status != 0) {
             printf("Uh oh, solve has failed!\n");
@@ -114,6 +48,120 @@ static void BM_cuLCP_SOLVER(benchmark::State &state) {
     return;
 }
 
-BENCHMARK(BM_cuLCP_SOLVER)->Arg(8)->Unit(benchmark::kSecond)->Iterations(1);
+static void BM_pathSolver(benchmark::State &state) {
+    int n = state.range(0);
+    unsigned int seed = 0;
+    for (auto _ : state) {
+        state.PauseTiming();
+        std::vector<double> M_host;
+        create_random_matrix(n, -5, 5, seed, M_host);
+        initializeM(M_host, n);
 
+        std::vector<double> q_host;
+        create_random_vector(n, -500, 500, seed, q_host);
+        initializeQ(q_host, n);
+
+        std::vector<double> z(n);
+        std::vector<double> f(n);
+
+        int status = 0;
+        state.ResumeTiming();
+
+        status = path_solve(n, n*n, z.data(), f.data());
+
+        // pathMain(n, n * n, &status, z, f, lb, ub);
+        // printf("M: \n");
+        // for (int i = 0; i < n; i++) {
+        //     for (int j = 0; j < n; j++) {
+        //         printf("%f ", M_host[i*n + j]);
+        //     }
+        //     printf("\n");
+        // }
+
+        // printf("Q: \n");
+        // for (int i = 0; i < n; i++) {
+        //     printf("%f ", q_host[i]);
+        // }
+        // printf("\n");
+
+        // printf("Mz+q: \n");
+        // funcEval(n, z, f);
+        // for (int i = 0; i < n; i++) {
+        //     printf("%f ", z[i]);
+        // }
+        // printf("\n");
+
+        // for (int i = 0; i < n; i++) {
+        //     printf("%f ", f[i]);
+        // }
+        // printf("\n");
+
+        if (status != 1)
+        {
+            printf("Uh oh, solve has failed with status %d!\n", status);
+        }
+    }
+}
+
+static void BM_LemkeMethod(benchmark::State &state) {
+    int n = state.range(0);
+    unsigned int seed = 0;
+    for (auto _ : state) {
+        state.PauseTiming();
+        std::vector<double> M_host;
+        create_random_matrix(n, -5, 5, seed, M_host);
+        initializeM(M_host, n);
+
+        std::vector<double> q_host;
+        create_random_vector(n, -500, 500, seed, q_host);
+        initializeQ(q_host, n);
+
+        std::vector<double> z(n);
+        std::vector<double> f(n);
+
+        int status = 0;
+        state.ResumeTiming();
+
+        status = path_solve(n, n*n, z.data(), f.data(), true);
+
+        // pathMain(n, n * n, &status, z, f, lb, ub);
+        // printf("M: \n");
+        // for (int i = 0; i < n; i++) {
+        //     for (int j = 0; j < n; j++) {
+        //         printf("%f ", M_host[i*n + j]);
+        //     }
+        //     printf("\n");
+        // }
+
+        // printf("Q: \n");
+        // for (int i = 0; i < n; i++) {
+        //     printf("%f ", q_host[i]);
+        // }
+        // printf("\n");
+
+        // printf("Mz+q: \n");
+        // funcEval(n, z, f);
+        // for (int i = 0; i < n; i++) {
+        //     printf("%f ", z[i]);
+        // }
+        // printf("\n");
+
+        // for (int i = 0; i < n; i++) {
+        //     printf("%f ", f[i]);
+        // }
+        // printf("\n");
+
+        if (status != 1)
+        {
+            printf("Uh oh, solve has failed with status %d!\n", status);
+        }
+    }
+}
+
+
+BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 10)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
+BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
 BENCHMARK_MAIN();
