@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cublas_v2.h>
 #include <stdio.h>
 #include <memory>
@@ -12,6 +14,14 @@
 #include <thrust/scatter.h>
 #include <thrust/logical.h>
 #include <cusolverDn.h>
+
+enum SOLVER_RESULT {
+    SOLVE_SUCCESSFUL = 0,
+    UNKNOWN_ERROR = 1,
+    TERMINATION_LIMIT  = 2,
+    NO_DECREASE_FOUND = 3,
+    DEGENERACY_ENCOUNTERED = 4
+};
 
 struct is_less_than
 {
@@ -49,7 +59,7 @@ void eval_linear(int N, thrust::device_vector<double> &M, thrust::device_vector<
 bool norm_termination_test(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, double epsilon, cublasHandle_t &handle);
 
 // Solves linear system Ax = b, returns B
-void solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size);
+int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size);
 
 // Sets up elements for linear system solver
 void setup_solver(int N, cusolverDnHandle_t &handle, void *&host_buffer, size_t &host_buffer_size, void *&device_buffer, size_t &device_buffer_size, cusolverDnParams_t &params);
@@ -64,7 +74,7 @@ bool solve_termination_test(int N, thrust::device_vector<double> &u, thrust::dev
 void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &w, thrust::device_vector<int> &gamma, thrust::device_vector<int> &alpha, thrust::device_vector<double> &rhos);
 
 // Gets the next iteration where ||H(z)|| < (1-eta*tau)||H((1-tau)z + tau* u)
-void get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma1, double sigma2, thrust::device_vector<double> &res);
+int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma1, double sigma2, thrust::device_vector<double> &res, thrust::device_vector<double> &wv);
 
 // Solves LCP(M, q) using newtons method given a starting point z_0 which is nondegenerate (i.e z_0_i =/= (Mz_0 + q)_i for any i)
-int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res);
+SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res);

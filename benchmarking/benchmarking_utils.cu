@@ -22,7 +22,7 @@ void create_random_vector(int n, double a, double b, unsigned int &seed, std::ve
     seed++;
 }
 
-void create_random_matrix(int n, double a, double b, unsigned int &seed, std::vector<double> &res)
+void create_random_P_matrix(int n, double a, double b, unsigned int &seed, std::vector<double> &res)
 {
     std::vector<double> M_host;
     create_random_vector(n*n, a, b, seed, M_host);
@@ -48,5 +48,37 @@ void create_random_matrix(int n, double a, double b, unsigned int &seed, std::ve
 
     for (int i = 0; i < n; i++) {
         M[i*n + i] += etas[i];
+    }
+}
+
+void create_porous_matrix(int n, std::vector<double> &res) {
+    int N = n*n;
+    res.clear();
+    res.resize(N*N);
+    for (int i = 0; i < N; i++) {
+        res[i*N + i] = 4;
+        if (i < N - 1 && i + n < N) {
+            res[i*N + i + n] = -1;
+        }
+        if (i > 0 && i - n >= 0) {
+            res[i*N + i - n] = -1;
+        }
+        if (i % n != 0) {
+            res[i*N + i - 1] = -1;
+        }
+        if (i % n != n-1) {
+            res[i*N + i + 1] = -1;
+        }
+    }
+}
+
+void create_porous_q(int n, std::vector<double> &res) {
+    res.resize(n*n);
+    for (int i = 0; i < n*n; i++) {
+        if (i % 2) {
+            res[i] = 1;
+        } else {
+            res[i] = -1;
+        }
     }
 }

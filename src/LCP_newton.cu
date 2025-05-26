@@ -1,5 +1,6 @@
 
 #include "LCP_newton.hpp"
+#include "degeneracy_resolve.cu"
 
 using namespace std;
 
@@ -86,9 +87,8 @@ bool norm_termination_test(int N, thrust::device_vector<double> &z, thrust::devi
     return nrm <= epsilon;
 }
 
-void solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size)
+int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size)
 {
-    res.clear();
     res.resize(N);
     cudaDataType_t type = CUDA_R_64F;
 
@@ -121,6 +121,13 @@ void solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device
         d_info
     );
 
+    int info;
+    cudaMemcpy(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost);
+    // printf("%d\n", info);
+    if (info > 0) {
+        return 1;
+    }
+
     cusolverDnXgetrs(
         handle,
         params,
@@ -140,6 +147,7 @@ void solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device
     cudaFree(A_cpy);
     cudaFree(d_ipiv);
     cudaFree(d_info);
+    return 0;
 }
 
 void setup_solver(int N, cusolverDnHandle_t &handle, void* &host_buffer, size_t &host_buffer_size, void* &device_buffer, size_t &device_buffer_size, cusolverDnParams_t &params)
@@ -281,12 +289,14 @@ void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<dou
 
 // }
 
-void get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma1, double sigma2, thrust::device_vector<double> &res)
+int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma1, double sigma2, thrust::device_vector<double> &res, thrust::device_vector<double> &wv)
 {
     res.resize(N);
+    wv.resize(N);
     double tau = 1.0;
     for (int i = 0; i < 100; i++){
         thrust::copy(z.begin(), z.end(), res.begin());
+        thrust::copy(w.begin(), w.end(), wv.begin());
         auto idx = thrust::find(rhos.begin(), rhos.end(), tau);
         if (idx != rhos.end()) {
             tau *= sigma2;
@@ -296,20 +306,22 @@ void get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vecto
         double x = 1 - tau;
         cublasDscal(handle, N, &x, res.data().get(), 1);
         cublasDaxpy(handle, N, &tau, u.data().get(), 1, res.data().get(), 1);
-        thrust::device_vector<double> wv;
-        eval_linear(N, M, q, res, wv, handle);
+
+        cublasDscal(handle, N, &x, wv.data().get(), 1);
+        cublasDaxpy(handle, N, &tau, phi.data().get(), 1, wv.data().get(), 1);
         double merit_zv = get_merit(N, res, wv, handle);
         // printf("new merit: %f\n", merit_zv);
         if (current_merit - (tau*xi*current_merit) > merit_zv) {
             // printf("tau: %f\n", tau);
-            return;
+            return 0;
         }
         tau *= sigma2;
     }
+    return 3;
     // printf("xxxx\n");
 }
 
-int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res) 
+SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res) 
 {
     int max_iters = 100;
     res.resize(N);
@@ -318,7 +330,7 @@ int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<do
     if (status != CUBLAS_STATUS_SUCCESS)
     {
         printf("CUBLAS initialization failed: %d\n", status);
-        return 1;
+        return UNKNOWN_ERROR;
     }
     // printf("M:\n");
     // for (int i = 0; i < N; i++) {
@@ -370,19 +382,19 @@ int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<do
     thrust::device_vector<double> q_alpha;
     q_alpha.reserve(N);
 
+    eval_linear(N, M, q, z_v, w, handle);
     for (int v = 0; v < max_iters; v++)
     {
         // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
         // 1.check for termination
 
-        eval_linear(N, M, q, z_v, w, handle);
         // printf("w: "); for(int i = 0; i < N; i++) {printf("%f ", (double) w[i]);}; printf("\n");
         double merit = get_merit(N, z_v, w, handle);
         // printf("merit: %f\n", merit);
         if (merit < epsilon)
         {
             thrust::copy(z_v.begin(), z_v.end(), res.begin());
-            return 0;
+            return SOLVE_SUCCESSFUL;
         }
 
         //2.1 compute alpha and gamma
@@ -412,7 +424,7 @@ int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<do
 
 
         thrust::device_vector<double> u_alpha;
-        solve_linear_system(
+        int solve_status = solve_linear_system(
             alpha.size(),
             M_alpha, 
             q_alpha, 
@@ -423,6 +435,22 @@ int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<do
             host_buffer_size, 
             device_buffer, 
             device_buffer_size);
+
+        if (solve_status != 0) {
+            printf("HERE!\n");
+            printf("grad: ");
+            thrust::device_vector<double> grad;
+            gradient(N, z_v, w, alpha, gamma, M, handle, grad);
+            for (int i = 0; i < N; i++) {
+                printf("%f ", (double) grad[i]);
+            }
+            printf("\n");
+            gradient_step(N, -1e-2, z_v, w, alpha, gamma, M, q, handle);
+            printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
+            continue;
+            
+            // return DEGENERACY_ENCOUNTERED;
+        }
         
         ::cuda::std::negate<double> minus;
         thrust::transform(u_alpha.begin(), u_alpha.end(), u_alpha.begin(), minus);
@@ -438,17 +466,28 @@ int LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<do
         {
             // printf("HERE! %d\n", (int) u.size());
             thrust::copy(u.begin(), u.end(), res.begin());
-            return 0;
+            return SOLVE_SUCCESSFUL;
         }
         // 4.1 find rhos
         thrust::device_vector<double> rhos;
         get_rhos(N, z_v, u, phi, w, gamma, alpha, rhos);
         // printf("rho: "); for(int i = 0; i < rhos.size(); i++) {printf("%f ", (double) rhos[i]);}; printf("\n");
         //4.2 calculate z+1
-        thrust::device_vector<double> old_z(N);
-        thrust::copy(z_v.begin(), z_v.end(), old_z.begin());
-        get_next_iter(N, old_z, M, q, u, rhos, handle, merit, xi, sigma0, sigma1, z_v);
+        thrust::device_vector<double> new_z(N);
+        thrust::device_vector<double> new_w(N);
+
+        int status = get_next_iter(N, z_v, w, M, q, u, phi, rhos, handle, merit, xi, sigma0, sigma1, new_z, new_w);
+
+        if (status != 0) {
+            return (SOLVER_RESULT) status;
+        }
         // printf("-----------\n");
+
+
+        thrust::copy(new_z.begin(), new_z.end(), z_v.begin());
+        thrust::copy(new_w.begin(), new_w.end(), w.begin());
+        // z_v = new_z;
+        // w = new_w;
     }
-    return 1;
+    return TERMINATION_LIMIT;
 }

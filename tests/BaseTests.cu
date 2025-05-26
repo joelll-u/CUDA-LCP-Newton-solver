@@ -147,7 +147,7 @@ TEST_F(BaseTest, solves_linear_system) {
 
     thrust::device_vector<double> res;
 
-    solve_linear_system(
+    int status = solve_linear_system(
         n,
         A,
         b,
@@ -163,12 +163,32 @@ TEST_F(BaseTest, solves_linear_system) {
     for (int i = 0; i < n; i++) {
         EXPECT_NEAR(res[i], expected[i], 1e-5);
     }
+    EXPECT_EQ(status, 0);
+}
 
-    n = 2;
-    thrust::device_vector<double> A_2 = {2, 1, -1, 1};
-    thrust::device_vector<double> b_2 = {1, 5};
+TEST_F(BaseTest, returns_when_singular) {
+    n = 3;
+    thrust::device_vector<double> A_2 = {1, 0, 0, 0, 0, 0, 0, 0, 1};
+    thrust::device_vector<double> b_2 = {1, 1, 1};
 
-    solve_linear_system(
+    void *host_buffer = nullptr;
+    void *device_buffer = nullptr;
+    cusolverDnHandle_t handle;
+    cusolverDnParams_t params;
+    size_t host_size;
+    size_t device_size;
+
+    setup_solver(
+        n,
+        handle,
+        host_buffer,
+        host_size,
+        device_buffer,
+        device_size,
+        params);
+
+    thrust::device_vector<double> res(n);
+    int status = solve_linear_system(
         n,
         A_2,
         b_2,
@@ -179,12 +199,8 @@ TEST_F(BaseTest, solves_linear_system) {
         host_size,
         device_buffer,
         device_size);
-    thrust::device_vector<double> expected_2 = {2, 3};
     cudaDeviceSynchronize();
-    for (int i = 0; i < n; i++)
-    {
-        EXPECT_NEAR(res[i], expected_2[i], 1e-5);
-    }
+    EXPECT_EQ(status, 1);
 }
 
 TEST_F(BaseTest, allocates_u) {
@@ -286,4 +302,25 @@ TEST_F(BaseTest, solvesLCP) {
     // for (int i = 0; i < n; i++) {
     //     EXPECT_double_EQ(z[i], expected[i]);
     // }
+}
+
+TEST_F(BaseTest, solves_bimatrix_game) {
+    int n = 5;
+
+    thrust::device_vector<double> M = {
+                                    0, 0, 0, 3, 2, 
+                                    0, 0, 0, 2, 5, 
+                                    0, 0, 0, 3, 1, 
+                                    3, 2, 0, 0, 0,
+                                    3, 5, 6, 0, 0};
+    thrust::device_vector<double> q = {-1, -1, -1, -1, -1};
+    thrust::device_vector<double> z_0(5, 1);
+    thrust::device_vector<double> z(5);
+
+    double epsilon = 0.00001;
+    double sigma0 = 0.1;
+    double sigma1 = 0.75;
+    double xi = 0.25;
+    int status = LCP_Newton(n, M, q, z, epsilon, xi, sigma0, sigma1, z);
+    ASSERT_EQ(status, 0);
 }

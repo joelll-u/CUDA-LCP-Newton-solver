@@ -76,6 +76,7 @@ void matrixToCCF(int n, const std::vector<double> &m)
 
     int cnt = 0;
     int nnz_col = 0;
+    nnz_ = 0;
     for (int i = 0; i < n; i++)
     {
         col_start_.push_back((i == 0) ? 1 : col_start_[i - 1] + nnz_col);
@@ -91,6 +92,7 @@ void matrixToCCF(int n, const std::vector<double> &m)
             cnt++;
         }
         col_len_.push_back(nnz_col);
+        nnz_ += nnz_col;
     }
     // printf("Col_start: \n");
     // for (int i = 0; i < col_start.size(); i++) {
@@ -135,7 +137,7 @@ void initializeQ(const std::vector<double> q, int n)
 }
 
 
-int path_solve(int n, int nnz, double* z, double* w, bool lemke = false)
+int path_solve(int n, double* z, double* w, bool lemke = false)
 {
     Options_Interface* o;
     MCP *m;
@@ -144,7 +146,6 @@ int path_solve(int n, int nnz, double* z, double* w, bool lemke = false)
 
     z_0 = z;
     size_ = n;
-    nnz_ = nnz;
     inputted = false;
 
     o = Options_Create();
@@ -169,7 +170,7 @@ int path_solve(int n, int nnz, double* z, double* w, bool lemke = false)
             NULL}
             ;
 
-    m = MCP_Create(n, nnz);
+    m = MCP_Create(n, nnz_);
     MCP_SetInterface(m, &mcp_interface);
 
     info.generate_output = 0;

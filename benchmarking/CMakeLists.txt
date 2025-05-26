@@ -18,4 +18,4 @@ target_include_directories(benchmarking PRIVATE ${PATHLIB_LOCATION}/examples/cpp
 target_include_directories(benchmarking PRIVATE ${PATHLIB_LOCATION}/include)
 target_include_directories(benchmarking SYSTEM PRIVATE ${EIGEN_INCLUDE_DIR})
 
-set_property(TARGET benchmarking PROPERTY CUDA_ARCHITECTURES 75)
+set_property(TARGET benchmarking PROPERTY CUDA_ARCHITECTURES 80)
