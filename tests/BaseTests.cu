@@ -166,7 +166,7 @@ TEST_F(BaseTest, solves_linear_system) {
     EXPECT_EQ(status, 0);
 }
 
-TEST_F(BaseTest, returns_when_singular) {
+TEST_F(BaseTest, solves_when_singular) {
     n = 3;
     thrust::device_vector<double> A_2 = {1, 0, 0, 0, 0, 0, 0, 0, 1};
     thrust::device_vector<double> b_2 = {1, 1, 1};
@@ -199,8 +199,15 @@ TEST_F(BaseTest, returns_when_singular) {
         host_size,
         device_buffer,
         device_size);
+
+    thrust::device_vector<double> expected = {0.9999, 1e4, 0.9999};
     cudaDeviceSynchronize();
-    EXPECT_EQ(status, 1);
+    EXPECT_EQ(status, 0);
+    for (int i = 0; i < n; i++)
+    {
+        EXPECT_NEAR(res[i], expected[i], 1e-6);
+    }
+
 }
 
 TEST_F(BaseTest, allocates_u) {
@@ -286,14 +293,13 @@ TEST_F(BaseTest, solvesLCP) {
     int n = 4;
     thrust::device_vector<double> M = {1, 0, 0, 0, 2, 1, 0, 0, 2, 2, 1, 0, 2, 2, 2, 1};
     thrust::device_vector<double> q = {-1, -1, -1, -1};
-    thrust::device_vector<double> z_0 = {1, 1, 1, 1};
+    thrust::device_vector<double> z_0(n);
     
     thrust::device_vector<double> z(n);
     double epsilon = 0.00001;
-    double sigma0 = 0.1;
-    double sigma1 = 0.75;
+    double sigma = 0.75;
     double xi = 0.25;
-    int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma0, sigma1, z);
+    int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma, z);
     ASSERT_EQ(status, 0);
 
     thrust::device_vector<double> expected = {0.0, 0.0, 0.0, 1.0};
@@ -304,23 +310,164 @@ TEST_F(BaseTest, solvesLCP) {
     // }
 }
 
+TEST_F(BaseTest, gets_columns) {
+    int n = 5;
+    thrust::device_vector<double> M = {
+        1, 2, 3, 4, 5,
+        6, 7, 8, 9, 10,
+        11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20,
+        21, 22, 23, 24, 25
+    };
+    thrust::device_vector<int> alpha = {1, 3, 4};
+    thrust::device_vector<double> res;
+    row_matrix(n, M, alpha, res);
+
+    thrust::device_vector<double> expected = {
+        2, 4, 5,
+        7, 9, 10,
+        12, 14, 15,
+        17, 19, 20,
+        22, 24, 25
+    };
+    EXPECT_EQ(res, expected);
+}
+
+TEST_F(BaseTest, gets_gradient) {
+    int n = 4;
+
+    thrust::device_vector<double> M = {
+        1, 0, 0, 0,
+        2, 1, 0, 0,
+        2, 2, 1, 0,
+        2, 2, 2, 1,
+    };
+    thrust::device_vector<double> z = {0, 2, 1, 0};
+    thrust::device_vector<double> w = {5, 3, 0, -1};
+    thrust::device_vector<int> alpha = {2, 3};
+    thrust::device_vector<int> gamma = {0, 1};
+
+    thrust::device_vector<double> res;
+
+    gradient(n, z, w, alpha, gamma, M, handle, res);
+
+    thrust::device_vector<double> expected = {0, 2, 0, -1};
+    EXPECT_EQ(res, expected);
+}
+
+TEST_F(BaseTest, gets_gradient2) {
+    int n = 5;
+
+    thrust::device_vector<double> M = {
+        0, 0, 0, 4, 3,
+        0, 0, 0, 3, 7,
+        0, 0, 0, 4, 2,
+        4, 3, 1, 0, 0,
+        4, 6, 7, 0, 0};
+    thrust::device_vector<double> z = {4.0/19, 1.0/19, 0, 0.080000, 0.170000};
+    thrust::device_vector<double> w = {0.000000, 0.260000, 0.270000, 0, 0};
+    thrust::device_vector<int> alpha = {0, 3, 4};
+    thrust::device_vector<int> gamma = {1, 2};
+
+    thrust::device_vector<double> res;
+
+    gradient(n, z, w, alpha, gamma, M, handle, res);
+
+    thrust::device_vector<double> expected = {0,1.0/19,0,0,0};
+    cudaDeviceSynchronize();
+    for (int i = 0; i < n; i++)
+    {
+        EXPECT_NEAR(res[i], expected[i], 1e-5);
+    }
+}
+
 TEST_F(BaseTest, solves_bimatrix_game) {
     int n = 5;
 
     thrust::device_vector<double> M = {
-                                    0, 0, 0, 3, 2, 
-                                    0, 0, 0, 2, 5, 
-                                    0, 0, 0, 3, 1, 
-                                    3, 2, 0, 0, 0,
-                                    3, 5, 6, 0, 0};
+                        0, 0, 0, 4, 3,
+                        0, 0, 0, 3, 7,
+                        0, 0, 0, 4, 2,
+                        4, 3, 1, 0, 0,
+                        4, 6, 7, 0, 0};
     thrust::device_vector<double> q = {-1, -1, -1, -1, -1};
-    thrust::device_vector<double> z_0(5, 1);
+    thrust::device_vector<double> z_0(5, 0.5);
+    // thrust::device_vector<double> z_0 = {0.333333, 0, 0, 0, 0.25};
     thrust::device_vector<double> z(5);
 
     double epsilon = 0.00001;
-    double sigma0 = 0.1;
-    double sigma1 = 0.75;
+    double sigma = 0.75;
     double xi = 0.25;
-    int status = LCP_Newton(n, M, q, z, epsilon, xi, sigma0, sigma1, z);
+    int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma, z);
+
     ASSERT_EQ(status, 0);
+    thrust::device_vector<double> expected = {0.333333, 0, 0, 0, 0.25};
+    for (int i = 0; i < n; i++)
+    {
+        EXPECT_NEAR(z[i], expected[i], 1e-5);
+    }
+}
+
+TEST_F(BaseTest, gets_sparse_submatrix) {
+    int n = 4;
+    thrust::device_vector<int> rows = {0, 2, 3, 4, 6};
+    thrust::device_vector<int> col_offsets = {0, 3, 1, 2, 0, 3};
+    thrust::device_vector<double> values = {1, 5, 2, 3, 5, 4};
+    sparse_format x = {rows, col_offsets, values};
+
+    thrust::device_vector<int> alpha = {0, 1, 3};
+    sparse_format res;
+    sparse_submatrix(n, x, alpha, res);
+
+    thrust::device_vector<int> expected_rows = {0, 2, 3, 5};
+    thrust::device_vector<int> expected_col_offsets = {0, 2, 1, 0, 2};
+    thrust::device_vector<int> expected_values = {1, 5, 2, 5, 4};
+
+    EXPECT_EQ(res.row_offsets, expected_rows);
+    EXPECT_EQ(res.column_indices, expected_col_offsets);
+    EXPECT_EQ(res.values, expected_values);
+}
+
+TEST_F(BaseTest, solves_sparse_linear_system) {
+    int n = 4;
+    thrust::device_vector<int> rows = {0, 2, 3, 4, 6};
+    thrust::device_vector<int> col_offsets = {0, 3, 1, 2, 0, 3};
+    thrust::device_vector<double> values = {1, 5, 2, 3, 5, 4};
+    sparse_format x = {rows, col_offsets, values};
+
+    thrust::device_vector<double> b = {21, 4, 6, 42};
+
+    thrust::device_vector<double> res;
+
+    sparse_solve(n, x, b, res);
+    cudaDeviceSynchronize();
+    thrust::device_vector<double> expected = {6, 2, 2, 3};
+
+    EXPECT_EQ(res, expected);
+}
+
+TEST_F(BaseTest, solves_sparse_LCP) {
+    int n = 4;
+
+    thrust::device_vector<double> M = {2, 1, 0, 0, 1, 2, 1, 0, 0, 1, 2, 1, 0, 0, 1, 2};
+    thrust::device_vector<double> q = {-1, -1, -1, 1};
+    thrust::device_vector<double> z_0(n);
+    thrust::device_vector<double> z(5);
+
+    thrust::device_vector<int> rows = {0, 2, 5, 8, 11};
+    thrust::device_vector<int> col_offset = {0, 1, 0, 1, 2, 1, 2, 3, 2, 3};
+    thrust::device_vector<double> values = {2, 1, 1, 2, 1, 1, 2, 1, 1, 2};
+
+    sparse_format f = {rows, col_offset, values};
+
+    double epsilon = 0.00001;
+    double sigma = 0.75;
+    double xi = 0.25;
+    int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma, z, true, &f);
+    ASSERT_EQ(status, 0);
+
+    thrust::device_vector<double> expected = {0.5, 0, 0.5, 0};
+
+    cudaDeviceSynchronize();
+    EXPECT_EQ(z, expected);
 }

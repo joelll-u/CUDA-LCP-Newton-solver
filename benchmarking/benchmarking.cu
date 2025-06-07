@@ -9,14 +9,12 @@
 #include "LCP_newton.hpp"
 #include "benchmarking_utils.cu"
 #include "path_utils.cpp"
-#include "cWrapper_Path.hpp"
 
 static void BM_cuLCP_SOLVER(benchmark::State &state) {
     int n = state.range(0);
 
     double epsilon = 0.00001;
-    double sigma0 = 0.1;
-    double sigma1 = 0.75;
+    double sigma= 0.75;
     double xi = 0.25;
 
     cublasHandle_t handle;
@@ -38,7 +36,7 @@ static void BM_cuLCP_SOLVER(benchmark::State &state) {
         thrust::device_vector<double> M = M_host;
         thrust::device_vector<double> q = q_host;
 
-        int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma0, sigma1, res);
+        int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma, res);
         thrust::copy(res.begin(), res.end(), res_host.begin());
         cudaDeviceSynchronize();
         if (status != 0) {
@@ -164,6 +162,8 @@ static void BM_cuLCP_Porous(benchmark::State &state) {
     create_porous_matrix(n, M);
     std::vector<double> q;
     create_porous_q(n, q);
+
+    sparse_format x = matrix_to_csr(n*n, M);
         
     // printf("M: \n");
     // for (int i = 0; i < n*n; i++) {
@@ -174,8 +174,7 @@ static void BM_cuLCP_Porous(benchmark::State &state) {
     // }
 
     double epsilon = 0.00001;
-    double sigma0 = 0.1;
-    double sigma1 = 0.75;
+    double sigma = 0.75;
     double xi = 0.25;
 
     // for (int i = 0; i < n*n; i++) {
@@ -192,10 +191,10 @@ static void BM_cuLCP_Porous(benchmark::State &state) {
 
         thrust::device_vector<double> res;
 
-        int status = LCP_Newton(n*n, M_d, q_d, z_0, epsilon, xi, sigma0, sigma1, res);
+        int status = LCP_Newton(n*n, M_d, q_d, z_0, epsilon, xi, sigma, res, true, &x);
 
-        thrust::copy(res.begin(), res.end(), res_host.begin());
-        cudaDeviceSynchronize();
+        // thrust::copy(res.begin(), res.end(), res_host.begin());
+        // cudaDeviceSynchronize();
         if (status != 0) {
             printf("Uh oh, solve has failed with status %d\n", status);
         }
@@ -229,11 +228,71 @@ static void BM_pathSolverPorous(benchmark::State &state)
     }
 }
 
-// BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 10)->Unit(benchmark::kSecond)->Iterations(10);
-// BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
+static void BM_LemkePorous(benchmark::State &state)
+{
+    int n = state.range(0);
+    std::vector<double> M_host;
+    create_porous_matrix(n, M_host);
+    initializeM(M_host, n * n);
+
+    std::vector<double> q_host;
+    create_porous_q(n, q_host);
+    initializeQ(q_host, n * n);
+
+    std::vector<double> z(n * n);
+    std::vector<double> f(n * n);
+
+    int status = 0;
+
+    for (auto _ : state)
+    {
+        status = path_solve(n * n, z.data(), f.data());
+
+        if (status != 1)
+        {
+            printf("Uh oh, solve has failed with status %d!\n", status);
+        }
+    }
+}
+
+static void BM_pathSolverBimatrix(benchmark::State &state)
+{
+    std::vector<double> M_host = {
+        0, 0, 0, 4, 3,
+        0, 0, 0, 3, 7,
+        0, 0, 0, 4, 2,
+        4, 3, 1, 0, 0,
+        4, 6, 7, 0, 0
+    };
+
+    initializeM(M_host, 5);
+
+    std::vector<double> q_host = {-1, -1, -1, -1, -1};
+    initializeQ(q_host, 5);
+
+    std::vector<double> z(5, 0.5);
+    std::vector<double> f(5);
+
+    int status = 0;
+
+    for (auto _ : state)
+    {
+        status = path_solve(5, z.data(), f.data(), true);
+        for (int i = 0; i < 5; i++) { printf("%f ", z[i]); } printf("\n");
+        if (status != 1)
+        {
+            printf("Uh oh, solve has failed with status %d!\n", status);
+        }
+    }
+}
+
+// BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+// BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
 // BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
 // BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
 // BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
 BENCHMARK(BM_cuLCP_Porous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10);
 BENCHMARK(BM_pathSolverPorous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_LemkePorous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10);
+// BENCHMARK(BM_pathSolverBimatrix)->Unit(benchmark::kSecond)->Iterations(1);
 BENCHMARK_MAIN();

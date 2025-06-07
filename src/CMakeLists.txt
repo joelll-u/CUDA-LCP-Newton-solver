@@ -3,7 +3,12 @@ add_library(cuLCP_Newton SHARED LCP_newton.cu)
 # set_property(TARGET cuLCP_Newton PROPERTY CUDA_ARCHITECTURES native)
 set_property(TARGET cuLCP_Newton PROPERTY CUDA_ARCHITECTURES 80)
 
-target_link_libraries(cuLCP_Newton cublas Thrust cusolver)
+set(cuDSSDIR "" CACHE PATH "Path to cudss")
+
+target_link_directories(cuLCP_Newton PRIVATE ${cuDSSDIR}/lib)
+
+# find_library(CUDSS_LIB cudss PATHS ${cuDSSDIR}/lib REQUIRED)
+target_link_libraries(cuLCP_Newton cublas Thrust cusolver cudss)
 
 target_compile_options(cuLCP_Newton PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
                        --extended-lambda

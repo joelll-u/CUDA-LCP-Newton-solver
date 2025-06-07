@@ -8,6 +8,9 @@ set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
 set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
+include_directories("$ENV{HOME}/local_include")
+link_directories("$ENV{HOME}/local_lib")
+
 include(FetchContent)
 FetchContent_Declare(
   eigen

@@ -11,35 +11,102 @@
 #include <thrust/gather.h>
 #include <thrust/scatter.h>
 #include <thrust/logical.h>
+#include <cmath>
+
 #include <cusolverDn.h>
 #include "LCP_newton.hpp"
+
+void row_matrix(int n, thrust::device_vector<double> &M, thrust::device_vector<int> &alpha, thrust::device_vector<double> &res) {
+    int size = n * alpha.size();
+    int num_rows_out = static_cast<int>(alpha.size());
+    res.resize(size);
+
+    const double* M_ptr = thrust::raw_pointer_cast(M.data());
+    const int* alpha_ptr = thrust::raw_pointer_cast(alpha.data());
+    double* res_ptr = thrust::raw_pointer_cast(res.data());
+
+    thrust::for_each(
+        thrust::device,
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(size),
+        [=] __device__(int idx)
+        {
+            int row_out = idx % num_rows_out;
+            int col = idx / num_rows_out;
+
+            int selected_row = alpha_ptr[row_out];
+            res_ptr[idx] = M_ptr[selected_row + col * n]; // M(row, col) = M_ptr[row + col * n]
+        });
+}
 
 void gradient(int n, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma, thrust::device_vector<double> &M, cublasHandle_t &handle, thrust::device_vector<double> &res)
 {
 
-    res.resize(n);
-    thrust::device_vector<double> grad_gamma(gamma.size());
-    thrust::gather(gamma.begin(), gamma.end(), z.begin(), grad_gamma.begin());
+    thrust::device_vector<double> M_alpha;
+    row_matrix(n, M, alpha, M_alpha);
 
-    thrust::device_vector<double> Mw(n);
+    res.clear();
+    res.resize(n);
+    // thrust::device_vector<double> grad_gamma(gamma.size());
+    // thrust::gather(gamma.begin(), gamma.end(), z.begin(), grad_gamma.begin());
+
+    // thrust::scatter(z.begin(), z.end(), gamma.begin(), res.begin());
+
+    thrust::scatter(
+        thrust::make_permutation_iterator(z.begin(), gamma.begin()),
+        thrust::make_permutation_iterator(z.begin(), gamma.end()),
+        gamma.begin(),
+        res.begin()
+    );
+
+    // for (int i = 0; i < alpha.size(); i++) {
+    //     for (int j = 0; j < n; j++) {
+    //         printf("%f ", (double) M_alpha[i + j * alpha.size()]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // for(int i = 0; i < n; i++) {
+    //     printf("%f ", (double) res[i]);
+    // }
+    // printf("\n");
+
+    thrust::device_vector<double> w_alpha(alpha.size());
+    thrust::gather(alpha.begin(), alpha.end(), w.begin(), w_alpha.begin());
+
+    // for(int i = 0; i < w_alpha.size(); i++) {
+    //     printf("%f ", (double) w_alpha[i]);
+    // }
+    // printf("\n");
+
+
+    // thrust::device_vector<double> Mw(n);
     double a = 1.0;
-    double b = 0.0;
-    cublasDgemv(handle, CUBLAS_OP_T, n, n, &a, M.data().get(), n, w.data().get(), 1, &b, Mw.data().get(), 1);
-    thrust::device_vector<double> Mw_alpha(alpha.size());
-    thrust::gather(alpha.begin(), alpha.end(), Mw.begin(), Mw_alpha.begin());
-    thrust::scatter(grad_gamma.begin(), grad_gamma.end(), gamma.begin(), res.begin());
-    thrust::scatter(Mw_alpha.begin(), Mw_alpha.end(), alpha.begin(), res.begin());
+    cublasDgemv(handle, CUBLAS_OP_T, alpha.size(), n, &a, M_alpha.data().get(), alpha.size(), w_alpha.data().get(), 1, &a, res.data().get(), 1);
+    // thrust::device_vector<double> Mw_alpha(alpha.size());
+    // thrust::gather(alpha.begin(), alpha.end(), Mw.begin(), Mw_alpha.begin());
+    // thrust::scatter(grad_gamma.begin(), grad_gamma.end(), gamma.begin(), res.begin());
+    // thrust::scatter(Mw_alpha.begin(), Mw_alpha.end(), alpha.begin(), res.begin());
 }
 
 void gradient_step(int n, double step_size, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma, thrust::device_vector<double> &M, thrust::device_vector<double> &q, cublasHandle_t &handle) {
     thrust::device_vector<int> old_alpha(alpha.begin(), alpha.end());
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 1000; i++) {
         thrust::device_vector<double> grad;
         gradient(n, z, w, alpha, gamma, M, handle, grad);
+        if (thrust::all_of(
+                grad.begin(),
+                grad.end(),
+                [] __device__(double x)
+                {
+                    return fabs(x) < 1e-5;
+                })) {
+                    return;
+                }
         cublasDaxpy(handle, n, &step_size, grad.data().get(), 1, z.data().get(), 1);
         eval_linear(n, M, q, z, w, handle);
         alpha_set(n, z, w, alpha, gamma);
-        printf("z: "); for(int i = 0; i < n; i++) {printf("%f ", (double) z[i]);}; printf("\n");
+        // printf("z: "); for(int i = 0; i < n; i++) {printf("%f ", (double) z[i]);}; printf("\n");
         if (!(alpha == old_alpha || !norm_termination_test(n, z, w, 1e5, handle))) {
             return;
         }

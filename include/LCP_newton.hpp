@@ -23,6 +23,13 @@ enum SOLVER_RESULT {
     DEGENERACY_ENCOUNTERED = 4
 };
 
+typedef struct
+{
+    thrust::device_vector<int> row_offsets;
+    thrust::device_vector<int> column_indices;
+    thrust::device_vector<double> values;
+} sparse_format;
+
 struct is_less_than
 {
     thrust::device_ptr<const double> a;
@@ -74,7 +81,18 @@ bool solve_termination_test(int N, thrust::device_vector<double> &u, thrust::dev
 void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &w, thrust::device_vector<int> &gamma, thrust::device_vector<int> &alpha, thrust::device_vector<double> &rhos);
 
 // Gets the next iteration where ||H(z)|| < (1-eta*tau)||H((1-tau)z + tau* u)
-int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma1, double sigma2, thrust::device_vector<double> &res, thrust::device_vector<double> &wv);
+int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma, thrust::device_vector<double> &res, thrust::device_vector<double> &wv);
+
+SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, thrust::device_vector<double> &res, bool sparse = false, sparse_format* f = nullptr);
 
 // Solves LCP(M, q) using newtons method given a starting point z_0 which is nondegenerate (i.e z_0_i =/= (Mz_0 + q)_i for any i)
-SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res);
+// SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res);
+
+// x
+void row_matrix(int n, thrust::device_vector<double> &M, thrust::device_vector<int> &alpha, thrust::device_vector<double> &res);
+
+void gradient(int n, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma, thrust::device_vector<double> &M, cublasHandle_t &handle, thrust::device_vector<double> &res);
+
+void sparse_submatrix(int N, sparse_format &M, thrust::device_vector<int> &alpha, sparse_format &M_alpha);
+
+int sparse_solve(int n, sparse_format &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res);

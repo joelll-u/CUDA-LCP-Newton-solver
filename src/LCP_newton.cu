@@ -1,6 +1,7 @@
 
 #include "LCP_newton.hpp"
 #include "degeneracy_resolve.cu"
+#include "sparse.cu"
 
 using namespace std;
 
@@ -125,7 +126,11 @@ int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_
     cudaMemcpy(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost);
     // printf("%d\n", info);
     if (info > 0) {
-        return 1;
+        // return 1;
+        for (int i = 0; i < N; i++) {
+            A[i*N + i] += 1e-4;
+        }
+        return solve_linear_system(N, A, b, res, handle, params, host_buffer, host_buffer_size, device_buffer, device_buffer_size);
     }
 
     cusolverDnXgetrs(
@@ -289,7 +294,7 @@ void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<dou
 
 // }
 
-int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma1, double sigma2, thrust::device_vector<double> &res, thrust::device_vector<double> &wv)
+int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma, thrust::device_vector<double> &res, thrust::device_vector<double> &wv)
 {
     res.resize(N);
     wv.resize(N);
@@ -299,7 +304,7 @@ int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector
         thrust::copy(w.begin(), w.end(), wv.begin());
         auto idx = thrust::find(rhos.begin(), rhos.end(), tau);
         if (idx != rhos.end()) {
-            tau *= sigma2;
+            tau *= sigma;
             continue;
         
         }
@@ -315,14 +320,17 @@ int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector
             // printf("tau: %f\n", tau);
             return 0;
         }
-        tau *= sigma2;
+        tau *= sigma;
     }
     return 3;
     // printf("xxxx\n");
 }
 
-SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res) 
+SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res, bool sparse, sparse_format* f) 
 {
+    if(sparse) {
+        assert(f != nullptr);
+    }
     int max_iters = 100;
     res.resize(N);
     cublasHandle_t handle;
@@ -335,7 +343,7 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
     // printf("M:\n");
     // for (int i = 0; i < N; i++) {
     //     for (int j = 0; j < N; j++) {
-    //         printf("%f ", (double) M[i * N + j]);
+    //         printf("%f ", (double) M[j * N + i]);
     //     }
     //     printf("\n");
     // }
@@ -403,9 +411,15 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
         //2.2 compute u and phi
 
         submatrix(N, M, alpha, M_alpha);
+
+        sparse_format M_alpha_f;
+        if (sparse) {
+            sparse_submatrix(N, *f, alpha, M_alpha_f);
+        }
         subvector(N, q, alpha, q_alpha);
 
         // printf("alpha: "); for (int i = 0; i < alpha.size(); i++) {printf("%d ", (int) alpha[i]);}; printf("\n");
+        // printf("gamma: "); for (int i = 0; i < gamma.size(); i++) {printf("%d ", (int) gamma[i]);}; printf("\n");
         // printf("M_alpha:\n");
         // for (int i = 0; i < alpha.size(); i++)
         // {
@@ -424,7 +438,8 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
 
 
         thrust::device_vector<double> u_alpha;
-        int solve_status = solve_linear_system(
+        if (!sparse) {
+            int solve_status = solve_linear_system(
             alpha.size(),
             M_alpha, 
             q_alpha, 
@@ -436,20 +451,23 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
             device_buffer, 
             device_buffer_size);
 
-        if (solve_status != 0) {
-            printf("HERE!\n");
-            printf("grad: ");
-            thrust::device_vector<double> grad;
-            gradient(N, z_v, w, alpha, gamma, M, handle, grad);
-            for (int i = 0; i < N; i++) {
-                printf("%f ", (double) grad[i]);
+            if (solve_status != 0) {
+                // printf("HERE!\n");
+                // printf("grad: ");
+                thrust::device_vector<double> grad;
+                gradient(N, z_v, w, alpha, gamma, M, handle, grad);
+                // for (int i = 0; i < alpha.size(); i++) {
+                //     printf("%f ", (double) u_alpha[i]);
+                // }
+                // printf("\n");
+                gradient_step(N, -1, z_v, w, alpha, gamma, M, q, handle);
+                // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
+                continue;
+                
+                // return DEGENERACY_ENCOUNTERED;
             }
-            printf("\n");
-            gradient_step(N, -1e-2, z_v, w, alpha, gamma, M, q, handle);
-            printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
-            continue;
-            
-            // return DEGENERACY_ENCOUNTERED;
+        } else {
+            int solve_status = sparse_solve(alpha.size(), M_alpha_f, q_alpha, u_alpha);
         }
         
         ::cuda::std::negate<double> minus;
@@ -476,9 +494,22 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
         thrust::device_vector<double> new_z(N);
         thrust::device_vector<double> new_w(N);
 
-        int status = get_next_iter(N, z_v, w, M, q, u, phi, rhos, handle, merit, xi, sigma0, sigma1, new_z, new_w);
+        int status = get_next_iter(N, z_v, w, M, q, u, phi, rhos, handle, merit, xi, sigma, new_z, new_w);
 
         if (status != 0) {
+
+            // printf("grad: ");
+            thrust::device_vector<double> grad;
+            gradient(N, z_v, w, alpha, gamma, M, handle, grad);
+            // for (int i = 0; i < alpha.size(); i++) {
+            //     printf("%f ", (double) u_alpha[i]);
+            // }
+            // printf("\n");
+            gradient_step(N, -1e-2, z_v, w, alpha, gamma, M, q, handle);
+            // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
+            continue;
+
+            // return DEGENERACY_ENCOUNTERED;
             return (SOLVER_RESULT) status;
         }
         // printf("-----------\n");

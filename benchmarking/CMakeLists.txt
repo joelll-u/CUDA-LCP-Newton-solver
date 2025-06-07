@@ -19,3 +19,9 @@ target_include_directories(benchmarking PRIVATE ${PATHLIB_LOCATION}/include)
 target_include_directories(benchmarking SYSTEM PRIVATE ${EIGEN_INCLUDE_DIR})
 
 set_property(TARGET benchmarking PROPERTY CUDA_ARCHITECTURES 80)
+
+add_executable(robustness robustness.cu)
+target_include_directories(benchmarking PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(robustness cuLCP_Newton)
+
+set_property(TARGET robustness PROPERTY CUDA_ARCHITECTURES 80)
