@@ -22,6 +22,6 @@ set_property(TARGET benchmarking PROPERTY CUDA_ARCHITECTURES 80)
 
 add_executable(robustness robustness.cu)
 target_include_directories(benchmarking PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(robustness cuLCP_Newton)
+target_link_libraries(robustness cuLCP_Newton Thrust Eigen3::Eigen path50)
 
 set_property(TARGET robustness PROPERTY CUDA_ARCHITECTURES 80)

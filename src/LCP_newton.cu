@@ -499,13 +499,16 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
         if (status != 0) {
 
             // printf("grad: ");
-            thrust::device_vector<double> grad;
-            gradient(N, z_v, w, alpha, gamma, M, handle, grad);
+            // thrust::device_vector<double> grad;
+            // gradient(N, z_v, w, alpha, gamma, M, handle, grad);
             // for (int i = 0; i < alpha.size(); i++) {
             //     printf("%f ", (double) u_alpha[i]);
             // }
             // printf("\n");
-            gradient_step(N, -1e-2, z_v, w, alpha, gamma, M, q, handle);
+            int status = gradient_step(N, -1e-2, z_v, w, alpha, gamma, M, q, handle);
+            if (status == 1) {
+                return STATIONARY_POINT_FOUND;
+            }
             // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
             continue;
 

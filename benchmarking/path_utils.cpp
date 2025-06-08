@@ -1,7 +1,6 @@
 #include <Eigen/Dense>
 #include <vector>
 
-// #include "MCP.h"
 #include "MCP_Interface.h"
 #include "Path.h"
 #include "PathOptions.h"
@@ -9,6 +8,7 @@
 #include "Macros.h"
 #include "Output_Interface.h"
 #include "Options.h"
+#include "Types.h"
 
 static std::vector<int> col_start_;
 static std::vector<int> col_len_;
@@ -83,7 +83,7 @@ void matrixToCCF(int n, const std::vector<double> &m)
         nnz_col = 0;
         for (int j = 0; j < n; j++)
         {
-            double x = m[j*n + i];
+            double x = m[i*n + j];
             if (x == 0)
                 continue;
             nnz_col++;
@@ -95,23 +95,23 @@ void matrixToCCF(int n, const std::vector<double> &m)
         nnz_ += nnz_col;
     }
     // printf("Col_start: \n");
-    // for (int i = 0; i < col_start.size(); i++) {
-    //     printf("%d ", col_start[i]);
+    // for (int i = 0; i < col_start_.size(); i++) {
+    //     printf("%d ", col_start_[i]);
     // }
     // printf("\n");
 
     // printf("Col_len: \n");
-    // for (int i = 0; i < col_len.size(); i++)
+    // for (int i = 0; i < col_len_.size(); i++)
     // {
-    //     printf("%d ", col_len[i]);
+    //     printf("%d ", col_len_[i]);
     // }
     // printf("\n");
 
 
     // printf("Row: \n");
-    // for (int i = 0; i < row.size(); i++)
+    // for (int i = 0; i < row_.size(); i++)
     // {
-    //     printf("%d ", row[i]);
+    //     printf("%d ", row_[i]);
     // }
     // printf("\n");
 
@@ -191,5 +191,37 @@ int path_solve(int n, double* z, double* w, bool lemke = false)
     MCP_Destroy(m);
     Options_Destroy(o);
 
+    // col_start_.clear();
+    // col_len_.clear();
+    // row_.clear();
+    // mdata.clear();
+    // m_eigen.resize(0,0);
+    // q_eigen.resize(0,0);
+
     return t;
+}
+
+
+int path_simple_solve(int n, std::vector<double> M, std::vector<double> q, bool lemke = false)
+{
+    initializeM(M, n);
+    initializeQ(q, n);
+
+    std::vector<double> z(n,1);
+    std::vector<double> f(n);
+
+    MCP_Termination status = (MCP_Termination) path_solve(n, z.data(), f.data());
+    // for (int i = 0; i < n; i++) {
+    //     printf("%f ", z[i]);
+    // }
+    // printf("\n");
+
+    if (status == MCP_Solved) {
+        return 1;
+    } else if (status == MCP_Infeasible) {
+        return 0;
+    } else {
+        // printf("Uh oh, unknown path error occured with status %d\n", status);
+        return 0;
+    }
 }

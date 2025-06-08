@@ -89,9 +89,9 @@ void gradient(int n, thrust::device_vector<double> &z, thrust::device_vector<dou
     // thrust::scatter(Mw_alpha.begin(), Mw_alpha.end(), alpha.begin(), res.begin());
 }
 
-void gradient_step(int n, double step_size, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma, thrust::device_vector<double> &M, thrust::device_vector<double> &q, cublasHandle_t &handle) {
+int gradient_step(int n, double step_size, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma, thrust::device_vector<double> &M, thrust::device_vector<double> &q, cublasHandle_t &handle) {
     thrust::device_vector<int> old_alpha(alpha.begin(), alpha.end());
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 100; i++) {
         thrust::device_vector<double> grad;
         gradient(n, z, w, alpha, gamma, M, handle, grad);
         if (thrust::all_of(
@@ -101,15 +101,15 @@ void gradient_step(int n, double step_size, thrust::device_vector<double> &z, th
                 {
                     return fabs(x) < 1e-5;
                 })) {
-                    return;
+                    return 1;
                 }
         cublasDaxpy(handle, n, &step_size, grad.data().get(), 1, z.data().get(), 1);
         eval_linear(n, M, q, z, w, handle);
         alpha_set(n, z, w, alpha, gamma);
         // printf("z: "); for(int i = 0; i < n; i++) {printf("%f ", (double) z[i]);}; printf("\n");
         if (!(alpha == old_alpha || !norm_termination_test(n, z, w, 1e5, handle))) {
-            return;
+            return 0;
         }
     }
-    assert(false);
+    return 0;
 }
