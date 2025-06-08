@@ -21,7 +21,14 @@ target_include_directories(benchmarking SYSTEM PRIVATE ${EIGEN_INCLUDE_DIR})
 set_property(TARGET benchmarking PROPERTY CUDA_ARCHITECTURES 80)
 
 add_executable(robustness robustness.cu)
-target_include_directories(benchmarking PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(robustness PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(robustness cuLCP_Newton Thrust Eigen3::Eigen path50)
 
 set_property(TARGET robustness PROPERTY CUDA_ARCHITECTURES 80)
+
+add_executable(profiling profiling.cu)
+target_include_directories(profiling PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(profiling cuLCP_Newton Thrust)
+
+
+set_property(TARGET profiling PROPERTY CUDA_ARCHITECTURES 80)

@@ -52,6 +52,36 @@ TEST_F(BaseTest, evaluates_linear) {
     EXPECT_EQ(res_2, expected_2);
 }
 
+TEST_F(BaseTest, evaluates_linear_sparse)
+{
+    int n = 4;
+    thrust::device_vector<int> row_offset = {0, 2, 4, 5, 7};
+    thrust::device_vector<int> col_index = {0, 1, 0, 1, 2, 1, 3};
+    thrust::device_vector<double> data = {1, 2, 2, 1, 2, 2, 3};
+    matrix_sparse M = {row_offset, col_index, data};
+
+    matrix_sparse old_M = M;
+
+    thrust::device_vector<double> q_old = {-1,-1,-1,-1};
+    thrust::device_vector<double> q = {-1, -1, -1, -1};
+    thrust::device_vector<double> z_0 = {1, 1, 1, 1};
+    thrust::device_vector<double> z_old = {1,1,1,1};
+    thrust::device_vector<double> res;
+
+    cusparseHandle_t handle;
+    cusparseCreate(&handle);
+    eval_linear_sparse(n, M, q, z_0, res, handle);
+    thrust::device_vector<double> expected = {2, 2, 1, 4};
+    EXPECT_EQ(res, expected);
+    EXPECT_EQ(M.column_indices, old_M.column_indices);
+    EXPECT_EQ(M.row_offsets, old_M.row_offsets);
+    EXPECT_EQ(M.values, old_M.values);
+    EXPECT_EQ(q, q_old);
+    EXPECT_EQ(z_0, z_old);
+    
+
+}
+
 TEST_F(BaseTest, terminates_correctly) {
     thrust::device_vector<double> terminates = {0, 0, 0.001};
     thrust::device_vector<double> terminates_w = {1.0, 2.0, 3.002};
@@ -135,7 +165,7 @@ TEST_F(BaseTest, solves_linear_system) {
 
     thrust::device_vector<double> res;
 
-    int status = solve_linear_system(
+    int status = solve_dense_linear_system(
         n,
         A,
         b,
@@ -159,7 +189,7 @@ TEST_F(BaseTest, solves_when_singular) {
     setup_solver(n, params);
 
     thrust::device_vector<double> res(n);
-    int status = solve_linear_system(
+    int status = solve_dense_linear_system(
         n,
         A_2,
         b_2,
@@ -414,8 +444,6 @@ TEST_F(BaseTest, solves_sparse_linear_system) {
 
 TEST_F(BaseTest, solves_sparse_LCP) {
     int n = 4;
-
-    thrust::device_vector<double> M = {2, 1, 0, 0, 1, 2, 1, 0, 0, 1, 2, 1, 0, 0, 1, 2};
     thrust::device_vector<double> q = {-1, -1, -1, 1};
     thrust::device_vector<double> z_0(n);
     thrust::device_vector<double> z(5);
@@ -429,7 +457,7 @@ TEST_F(BaseTest, solves_sparse_LCP) {
     double epsilon = 0.00001;
     double sigma = 0.75;
     double xi = 0.25;
-    int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma, z, true, &f);
+    int status = LCP_Newton(n, f, q, z_0, epsilon, xi, sigma, z);
     ASSERT_EQ(status, 0);
 
     thrust::device_vector<double> expected = {0.5, 0, 0.5, 0};

@@ -135,13 +135,72 @@ void eval_linear(int N, thrust::device_vector<double> &M, thrust::device_vector<
     return;
 }
 
+void eval_linear_sparse(int N, matrix_sparse &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z, thrust::device_vector<double> &res, cusparseHandle_t &handle) 
+{
+    // Step 1: Copy q into res
+    res.resize(N);
+    thrust::copy(q.begin(), q.end(), res.begin());
+
+    cusparseSpMatDescr_t matA;
+    cusparseDnVecDescr_t vecZ, vecRes;
+
+    cusparseCreateCsr(&matA, N, N, M.values.size(),
+                      thrust::raw_pointer_cast(M.row_offsets.data()),
+                      thrust::raw_pointer_cast(M.column_indices.data()),
+                      thrust::raw_pointer_cast(M.values.data()),
+                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+                      CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+
+    cusparseCreateDnVec(&vecZ, N, thrust::raw_pointer_cast(z.data()), CUDA_R_64F);
+    cusparseCreateDnVec(&vecRes, N, thrust::raw_pointer_cast(res.data()), CUDA_R_64F);
+
+    // Step 3: Perform SpMV: res = M*z + res
+    const double alpha = 1.0;
+    const double beta = 1.0;
+
+    size_t bufferSize = 0;
+    void *dBuffer = nullptr;
+
+    cusparseSpMV_bufferSize(
+        handle,
+        CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &alpha,
+        matA,
+        vecZ,
+        &beta,
+        vecRes,
+        CUDA_R_64F,
+        CUSPARSE_SPMV_ALG_DEFAULT,
+        &bufferSize);
+
+    cudaMalloc(&dBuffer, bufferSize);
+
+    cusparseSpMV(
+        handle,
+        CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &alpha,
+        matA,
+        vecZ,
+        &beta,
+        vecRes,
+        CUDA_R_64F,
+        CUSPARSE_SPMV_ALG_DEFAULT,
+        dBuffer);
+
+    // Cleanup
+    cudaFree(dBuffer);
+    cusparseDestroySpMat(matA);
+    cusparseDestroyDnVec(vecZ);
+    cusparseDestroyDnVec(vecRes);
+}
+
 bool norm_termination_test(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, double epsilon, cublasHandle_t &handle)
 {
     double nrm = get_merit(N, z, w, handle);
     return nrm <= epsilon;
 }
 
-int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, dn_solver_params params)
+int solve_dense_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, dn_solver_params params)
 {
     res.resize(N);
     cudaDataType_t type = CUDA_R_64F;
@@ -183,7 +242,7 @@ int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_
         for (int i = 0; i < N; i++) {
             A[i*N + i] += 1e-4;
         }
-        return solve_linear_system(N, A, b, res, params);
+        return solve_dense_linear_system(N, A, b, res, params);
     }
 
     cusolverDnXgetrs(
@@ -303,15 +362,7 @@ void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<dou
     );
 }
 
-// bool valid_dir(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &d, thrust::device_vector<double> rhos, double xi) 
-// {
-//     thrust::device_vector<double> w_tau;
-//     eval_linear(N, M, q, z, w_tau, handle);
-
-
-// }
-
-int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma, thrust::device_vector<double> &res, thrust::device_vector<double> &wv)
+int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma, thrust::device_vector<double> &res, thrust::device_vector<double> &wv)
 {
     res.resize(N);
     wv.resize(N);
@@ -343,11 +394,8 @@ int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector
     // printf("xxxx\n");
 }
 
-SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res, bool sparse, matrix_sparse* f) 
+SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res) 
 {
-    if(sparse) {
-        assert(f != nullptr);
-    }
     int max_iters = 100;
     res.resize(N);
     cublasHandle_t handle;
@@ -356,6 +404,11 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
     {
         printf("CUBLAS initialization failed: %d\n", status);
         return UNKNOWN_ERROR;
+    }
+
+    cusparseHandle_t sparse_handle;
+    if (sparse) {
+        cusparseCreate(&sparse_handle);
     }
     // printf("M:\n");
     // for (int i = 0; i < N; i++) {
@@ -371,7 +424,9 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
     // printf("\n");
 
     dn_solver_params dn_params;
-    setup_solver(N, dn_params);
+    if (!sparse) {
+        setup_solver(N, dn_params);
+    }
 
 
     thrust::device_vector<double> z_v(N);
@@ -396,12 +451,19 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
     gamma.reserve(N);
     
     thrust::device_vector<double> M_alpha;
-    M_alpha.reserve(N*N);
+    if (!sparse) {
+        M_alpha.reserve(N*N);
+    }
 
     thrust::device_vector<double> q_alpha;
     q_alpha.reserve(N);
 
-    eval_linear(N, M, q, z_v, w, handle);
+    if(!sparse)
+    {
+        eval_linear(N, M, q, z_v, w, handle);
+    } else {
+        eval_linear_sparse(N, f, q, z_v, w, sparse_handle);
+    }
     for (int v = 0; v < max_iters; v++)
     {
         // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
@@ -421,11 +483,11 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
         alpha_set(N, z_v, w, alpha, gamma);
         //2.2 compute u and phi
 
-        submatrix(N, M, alpha, M_alpha);
-
         matrix_sparse M_alpha_f;
         if (sparse) {
-            sparse_submatrix(N, *f, alpha, M_alpha_f);
+            sparse_submatrix(N, f, alpha, M_alpha_f);
+        } else {
+            submatrix(N, M, alpha, M_alpha);
         }
         subvector(N, q, alpha, q_alpha);
 
@@ -450,7 +512,7 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
 
         thrust::device_vector<double> u_alpha;
         if (!sparse) {
-            int solve_status = solve_linear_system(
+            int solve_status = solve_dense_linear_system(
             alpha.size(),
             M_alpha, 
             q_alpha, 
@@ -483,7 +545,11 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
         scatter_vector(N, u_alpha, alpha, u);
         // printf("u: "); for(int i = 0; i < N; i++) {printf("%f ", (double) u[i]);}; printf("\n");
         thrust::device_vector<double> phi;
-        eval_linear(N, M, q, u, phi, handle);
+        if (!sparse) {
+            eval_linear(N, M, q, u, phi, handle);
+         } else {
+            eval_linear_sparse(N, f, q, u, phi, sparse_handle);
+         }
         //  printf("phi: "); for(int i = 0; i < N; i++) {printf("%f ", (double) phi[i]);}; printf("\n");
         //3. check for termination
         if (solve_termination_test(N, u, phi, epsilon, handle))
@@ -500,10 +566,10 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
         thrust::device_vector<double> new_z(N);
         thrust::device_vector<double> new_w(N);
 
-        int status = get_next_iter(N, z_v, w, M, q, u, phi, rhos, handle, merit, xi, sigma, new_z, new_w);
+        int status = get_next_iter(N, z_v, w, q, u, phi, rhos, handle, merit, xi, sigma, new_z, new_w);
 
         if (status != 0) {
-
+            assert(!sparse);
             // printf("grad: ");
             // thrust::device_vector<double> grad;
             // gradient(N, z_v, w, alpha, gamma, M, handle, grad);
@@ -530,4 +596,14 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
         // w = new_w;
     }
     return TERMINATION_LIMIT;
+}
+
+SOLVER_RESULT LCP_Newton(int N, matrix_dense &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res) {
+    matrix_sparse m_empty;
+    return LCP_Newton(N, false, m_empty, M, q, z0, epsilon, xi, sigma, res);
+}
+
+SOLVER_RESULT LCP_Newton(int N, matrix_sparse &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res) {
+    matrix_dense m_empty;
+    return LCP_Newton(N, true, M, m_empty, q, z0, epsilon, xi, sigma, res);
 }

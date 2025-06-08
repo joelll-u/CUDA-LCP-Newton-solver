@@ -1,4 +1,5 @@
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <vector>
 
 #include "MCP_Interface.h"
@@ -16,8 +17,11 @@ static std::vector<int> row_;
 static std::vector<double> mdata;
 
 static bool inputted = false;
+static bool sparse = false;
 
 static Eigen::MatrixXd m_eigen;
+static Eigen::SparseMatrix<double> m_eigen_sparse;
+
 static Eigen::VectorXd q_eigen;
 
 static int nnz_;
@@ -40,10 +44,27 @@ void bounds(void *id, int size, double *x, double *l, double *u)
 
 int funcEval(void* id, int n, double *z, double *f)
 {
-    Eigen::Map<const Eigen::VectorXd> z_vec(z, m_eigen.cols());     // Wrap input z
-    Eigen::Map<Eigen::VectorXd> result_vec(f, m_eigen.rows()); // Wrap output result
+    Eigen::Map<const Eigen::VectorXd> z_vec(z, n);     // Wrap input z
+    Eigen::Map<Eigen::VectorXd> result_vec(f, n); // Wrap output result
 
-    result_vec = m_eigen * z_vec + q_eigen; // Perform the operation
+    if (!sparse ) {
+        result_vec = m_eigen * z_vec + q_eigen; // Perform the operation
+    } else {
+        result_vec = (m_eigen_sparse * z_vec + q_eigen).eval();
+        // std:: cout << n << std::endl;
+        // for (int i = 0; i < n; i++)
+        // {
+        //     std::cout << z[i] << " ";
+        // }
+        // std::cout << std::endl;
+        // for (int i = 0; i < n; i++) {
+        //     std::cout << f[i] << " ";
+        // }
+        // std::cout << std::endl;
+        // std::cout<< result_vec << std::endl;
+        
+        // throw std::invalid_argument("a");
+    }
     return 0;
 }
 
@@ -125,10 +146,36 @@ void matrixToCCF(int n, const std::vector<double> &m)
 
 void initializeM(const std::vector<double> &m, int n)
 {
+    sparse = false;
     Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>> mapped(m.data(), n, n);
 
     m_eigen = mapped;
     matrixToCCF(n, m);
+}
+
+void initializeM_sparse(const std::vector<double> &m, int n)
+{
+    // m_eigen = mapped;
+    sparse = true;
+    matrixToCCF(n, m);
+
+    std::vector<Eigen::Triplet<double>> triplets;
+    for (int i = 0; i < n; i++)
+    {
+        int colStart = col_start_[i] - 1;   // Convert to 0-based
+        int colEnd = col_len_[i] + colStart; // Convert to 0-based
+
+        for (int j = colStart; j < colEnd; j++)
+        {
+            int row = row_[j] - 1; // Convert to 0-based
+            triplets.emplace_back(row, i, mdata[j]);
+        }
+    }
+
+    m_eigen_sparse.resize(n, n);
+    m_eigen_sparse.setFromTriplets(triplets.begin(), triplets.end());
+    m_eigen_sparse.makeCompressed();
+    // std::cout << Eigen::MatrixXd(m_eigen_sparse) << std::endl;
 }
 
 void initializeQ(const std::vector<double> q, int n)
