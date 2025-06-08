@@ -2,7 +2,7 @@
 #include <cudss.h>
 #include <thrust/host_vector.h>
 
-void sparse_submatrix(int N, sparse_format &M, thrust::device_vector<int> &alpha, sparse_format &M_alpha) {
+void sparse_submatrix(int N, matrix_sparse &M, thrust::device_vector<int> &alpha, matrix_sparse &M_alpha) {
     // Copy alpha to host for quick lookup and index mapping
     thrust::host_vector<int> h_alpha = alpha;
     int k = h_alpha.size();
@@ -48,7 +48,7 @@ void sparse_submatrix(int N, sparse_format &M, thrust::device_vector<int> &alpha
     M_alpha.values = thrust::device_vector<double>(new_values.begin(), new_values.end());
 }
 
-    int sparse_solve(int n, sparse_format &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res)
+    int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res)
 {
     cudssHandle_t handle;
     cudssConfig_t config;

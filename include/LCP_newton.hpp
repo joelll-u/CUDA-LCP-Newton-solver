@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <memory>
 #include <vector>
+#include <variant>
 #include <cuda_runtime.h>
 #include <thrust/transform.h>
 #include <thrust/functional.h>
@@ -15,6 +16,17 @@
 #include <thrust/logical.h>
 #include <cusolverDn.h>
 
+using matrix_dense = thrust::device_vector<double>;
+
+typedef struct
+{
+    thrust::device_vector<int> row_offsets;
+    thrust::device_vector<int> column_indices;
+    thrust::device_vector<double> values;
+} matrix_sparse;
+
+using matrix = std::variant<matrix_sparse, matrix_dense>;
+
 enum SOLVER_RESULT {
     SOLVE_SUCCESSFUL = 0,
     UNKNOWN_ERROR = 1,
@@ -24,26 +36,16 @@ enum SOLVER_RESULT {
     STATIONARY_POINT_FOUND = 5,
 };
 
-typedef struct
+struct dn_solver_params
 {
-    thrust::device_vector<int> row_offsets;
-    thrust::device_vector<int> column_indices;
-    thrust::device_vector<double> values;
-} sparse_format;
-
-struct is_less_than
-{
-    thrust::device_ptr<const double> a;
-    thrust::device_ptr<const double> b;
-
-    is_less_than(thrust::device_ptr<const double> a_, thrust::device_ptr<const double> b_)
-        : a(a_), b(b_) {}
-
-    __host__ __device__ bool operator()(int i) const
-    {
-        return a[i] > b[i];
-    }
+    cusolverDnHandle_t handle;
+    cusolverDnParams_t params;
+    size_t host_buffer_size = 0;
+    void* host_buffer = nullptr;
+    size_t device_buffer_size = 0;
+    void* device_buffer = nullptr;
 };
+
 
 // Returns merit of point z given point w=Mz+q, merit is the norm of the elementwise-min of the two
 double get_merit(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w,cublasHandle_t &handle);
@@ -67,10 +69,10 @@ void eval_linear(int N, thrust::device_vector<double> &M, thrust::device_vector<
 bool norm_termination_test(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, double epsilon, cublasHandle_t &handle);
 
 // Solves linear system Ax = b, returns B
-int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size);
+int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, dn_solver_params params);
 
 // Sets up elements for linear system solver
-void setup_solver(int N, cusolverDnHandle_t &handle, void *&host_buffer, size_t &host_buffer_size, void *&device_buffer, size_t &device_buffer_size, cusolverDnParams_t &params);
+void setup_solver(int N, dn_solver_params &params);
 
 // Scatters vector u_alpha according to alpha i.e creates vector q such that q_i = q_j where i is in alpha and j is the corresponding element of alpha
 void scatter_vector(int N, thrust::device_vector<double> &u_alpha, thrust::device_vector<int> &alpha, thrust::device_vector<double> &res);
@@ -84,7 +86,7 @@ void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<dou
 // Gets the next iteration where ||H(z)|| < (1-eta*tau)||H((1-tau)z + tau* u)
 int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &rhos, cublasHandle_t &handle, double current_merit, double xi, double sigma, thrust::device_vector<double> &res, thrust::device_vector<double> &wv);
 
-SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, thrust::device_vector<double> &res, bool sparse = false, sparse_format* f = nullptr);
+SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, thrust::device_vector<double> &res, bool sparse = false, matrix_sparse* f = nullptr);
 
 // Solves LCP(M, q) using newtons method given a starting point z_0 which is nondegenerate (i.e z_0_i =/= (Mz_0 + q)_i for any i)
 // SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma0, double sigma1, thrust::device_vector<double> &res);
@@ -94,6 +96,6 @@ void row_matrix(int n, thrust::device_vector<double> &M, thrust::device_vector<i
 
 void gradient(int n, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma, thrust::device_vector<double> &M, cublasHandle_t &handle, thrust::device_vector<double> &res);
 
-void sparse_submatrix(int N, sparse_format &M, thrust::device_vector<int> &alpha, sparse_format &M_alpha);
+void sparse_submatrix(int N, matrix_sparse &M, thrust::device_vector<int> &alpha, matrix_sparse &M_alpha);
 
-int sparse_solve(int n, sparse_format &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res);
+int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res);

@@ -106,7 +106,7 @@ void create_porous_q(int n, std::vector<double> &res) {
     }
 }
 
-sparse_format matrix_to_csr(int n, std::vector<double> &M) {
+matrix_sparse matrix_to_csr(int n, std::vector<double> &M) {
 
     std::vector<int> csr_row_ptr;
     std::vector<int> csr_values;

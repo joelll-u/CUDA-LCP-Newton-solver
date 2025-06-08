@@ -163,7 +163,7 @@ static void BM_cuLCP_Porous(benchmark::State &state) {
     std::vector<double> q;
     create_porous_q(n, q);
 
-    sparse_format x = matrix_to_csr(n*n, M);
+    matrix_sparse x = matrix_to_csr(n*n, M);
         
     // printf("M: \n");
     // for (int i = 0; i < n*n; i++) {

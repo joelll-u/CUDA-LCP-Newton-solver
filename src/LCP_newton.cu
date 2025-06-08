@@ -5,6 +5,59 @@
 
 using namespace std;
 
+struct is_negative
+{
+    const double *u;
+    is_negative(const double *_u) : u(_u) {}
+
+    __device__ bool operator()(int i)
+    {
+        return u[i] < 0;
+    }
+};
+
+struct is_less_than
+{
+    thrust::device_ptr<const double> a;
+    thrust::device_ptr<const double> b;
+
+    is_less_than(thrust::device_ptr<const double> a_, thrust::device_ptr<const double> b_)
+        : a(a_), b(b_) {}
+
+    __host__ __device__ bool operator()(int i) const
+    {
+        return a[i] > b[i];
+    }
+};
+
+struct rho_i
+{
+    const double *z;
+    const double *w;
+    const double *u;
+
+    rho_i(const double *_u, const double *_w, const double *_z) : u(_u), w(_w), z(_z) {}
+
+    __device__ double operator()(int i)
+    {
+        return (z[i] - w[i]) / ((z[i] - w[i]) - u[i]);
+    }
+};
+
+struct rho_j
+{
+    const double *z;
+    const double *w;
+    const double *phi;
+
+    rho_j(const double *_z, const double *_w, const double *_phi) : z(_z), w(_w), phi(_phi) {}
+
+    __device__ double operator()(int i)
+    {
+        return (w[i] - z[i]) / (w[i] - z[i] - phi[i]);
+    }
+};
+
 double get_merit(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &w, cublasHandle_t &handle)
 {
     thrust::device_vector<double> res(N);
@@ -71,13 +124,13 @@ void elementwise_min(int N, thrust::device_vector<double> &z1, thrust::device_ve
 
 void eval_linear(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z, thrust::device_vector<double> &res, cublasHandle_t &handle)
 {
-    res.resize(N);
-    double alpha = 1.0;
-    double beta = 1.0;
-    thrust::copy(q.begin(), q.end(), res.begin());
-    // printf("res: "); for(int i = 0; i < N; i++) {printf("%f ", (double) res[i]);}; printf("\n");
-    // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z[i]);}; printf("\n");
-    cublasDgemv(handle, CUBLAS_OP_N, N, N, &alpha, thrust::raw_pointer_cast(M.data()), N, thrust::raw_pointer_cast(z.data()), 1, &beta, thrust::raw_pointer_cast(res.data()), 1);
+        res.resize(N);
+        double alpha = 1.0;
+        double beta = 1.0;
+        thrust::copy(q.begin(), q.end(), res.begin());
+        // printf("res: "); for(int i = 0; i < N; i++) {printf("%f ", (double) res[i]);}; printf("\n");
+        // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z[i]);}; printf("\n");
+        cublasDgemv(handle, CUBLAS_OP_N, N, N, &alpha, thrust::raw_pointer_cast(M.data()), N, thrust::raw_pointer_cast(z.data()), 1, &beta, thrust::raw_pointer_cast(res.data()), 1);
 
     return;
 }
@@ -88,7 +141,7 @@ bool norm_termination_test(int N, thrust::device_vector<double> &z, thrust::devi
     return nrm <= epsilon;
 }
 
-int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, cusolverDnHandle_t &handle, cusolverDnParams_t &params, void *host_buffer, size_t host_buffer_size, void *device_buffer, size_t device_buffer_size)
+int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, dn_solver_params params)
 {
     res.resize(N);
     cudaDataType_t type = CUDA_R_64F;
@@ -106,8 +159,8 @@ int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_
     thrust::copy(b.begin(), b.end(), res.begin());
 
     cusolverDnXgetrf(
-        handle,
-        params,
+        params.handle,
+        params.params,
         N,
         N,
         type,
@@ -115,10 +168,10 @@ int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_
         N,
         d_ipiv,
         type,
-        device_buffer,
-        device_buffer_size,
-        host_buffer,
-        host_buffer_size,
+        params.device_buffer,
+        params.device_buffer_size,
+        params.host_buffer,
+        params.host_buffer_size,
         d_info
     );
 
@@ -130,12 +183,12 @@ int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_
         for (int i = 0; i < N; i++) {
             A[i*N + i] += 1e-4;
         }
-        return solve_linear_system(N, A, b, res, handle, params, host_buffer, host_buffer_size, device_buffer, device_buffer_size);
+        return solve_linear_system(N, A, b, res, params);
     }
 
     cusolverDnXgetrs(
-        handle,
-        params,
+        params.handle,
+        params.params,
         CUBLAS_OP_N,
         N,
         1,
@@ -155,34 +208,34 @@ int solve_linear_system(int N, thrust::device_vector<double> &A, thrust::device_
     return 0;
 }
 
-void setup_solver(int N, cusolverDnHandle_t &handle, void* &host_buffer, size_t &host_buffer_size, void* &device_buffer, size_t &device_buffer_size, cusolverDnParams_t &params)
+void setup_solver(int N, dn_solver_params &params_s)
 {
-    cusolverDnCreate(&handle);
-    cusolverDnCreateParams(&params);
-    cusolverDnSetAdvOptions(params, CUSOLVERDN_GETRF, CUSOLVER_ALG_0);
+    cusolverDnCreate(&params_s.handle);
+    cusolverDnCreateParams(&params_s.params);
+    cusolverDnSetAdvOptions(params_s.params, CUSOLVERDN_GETRF, CUSOLVER_ALG_0);
 
-    cudaDataType_t type = CUDA_R_32F;
+    cudaDataType_t type = CUDA_R_64F;
 
     cusolverDnXgetrf_bufferSize(
-        handle,
-        params,
+        params_s.handle,
+        params_s.params,
         N,
         N,
         type,
         nullptr,
         N,
         type,
-        &device_buffer_size,
-        &host_buffer_size
+        &params_s.device_buffer_size,
+        &params_s.host_buffer_size
     );
 
-    if (host_buffer_size > 0) {
-        host_buffer = malloc(host_buffer_size);
+    if (params_s.host_buffer_size > 0) {
+        params_s.host_buffer = malloc(params_s.host_buffer_size);
     } else {
-        host_buffer = nullptr;
+        params_s.host_buffer = nullptr;
     }
 
-    cudaMalloc(&device_buffer, device_buffer_size);
+    cudaMalloc(&params_s.device_buffer, params_s.device_buffer_size);
 
     return;
 }
@@ -213,42 +266,6 @@ bool solve_termination_test(int N, thrust::device_vector<double> &u, thrust::dev
 
     return norm_termination_test(N, u, phi, epsilon, handle);
 }
-
-struct is_negative {
-    const double* u;
-    is_negative(const double* _u): u(_u){}
-
-    __device__ bool operator()(int i)
-    {
-        return u[i] < 0;
-    }
-};
-
-struct rho_i {
-    const double* z;
-    const double* w;
-    const double* u;
-
-    rho_i(const double* _u, const double* _w, const double* _z): u(_u), w(_w), z(_z) {}
-
-    __device__ double operator()(int i)
-    {
-        return (z[i]- w[i])/ ((z[i] - w[i]) - u[i]);
-    }
-};
-
-struct rho_j {
-    const double* z;
-    const double* w;
-    const double* phi;
-
-    rho_j(const double* _z, const double* _w, const double* _phi): z(_z), w(_w), phi(_phi) {}
-
-    __device__ double operator()(int i)
-    {
-        return (w[i] - z[i])/ (w[i] - z[i]- phi[i]);
-    }
-};
 
 void get_rhos(int N, thrust::device_vector<double> &z, thrust::device_vector<double> &u, thrust::device_vector<double> &phi, thrust::device_vector<double> &w, thrust::device_vector<int> &gamma, thrust::device_vector<int> &alpha, thrust::device_vector<double> &rhos)
 {
@@ -326,7 +343,7 @@ int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector
     // printf("xxxx\n");
 }
 
-SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res, bool sparse, sparse_format* f) 
+SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res, bool sparse, matrix_sparse* f) 
 {
     if(sparse) {
         assert(f != nullptr);
@@ -353,14 +370,8 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
     // }
     // printf("\n");
 
-    cusolverDnHandle_t solver_handle;
-    cusolverDnParams_t solver_params;
-    size_t host_buffer_size;
-    void* host_buffer;
-    size_t device_buffer_size;
-    void* device_buffer;
-
-    setup_solver(N, solver_handle, host_buffer, host_buffer_size, device_buffer, device_buffer_size, solver_params);
+    dn_solver_params dn_params;
+    setup_solver(N, dn_params);
 
 
     thrust::device_vector<double> z_v(N);
@@ -412,7 +423,7 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
 
         submatrix(N, M, alpha, M_alpha);
 
-        sparse_format M_alpha_f;
+        matrix_sparse M_alpha_f;
         if (sparse) {
             sparse_submatrix(N, *f, alpha, M_alpha_f);
         }
@@ -444,12 +455,7 @@ SOLVER_RESULT LCP_Newton(int N, thrust::device_vector<double> &M, thrust::device
             M_alpha, 
             q_alpha, 
             u_alpha, 
-            solver_handle, 
-            solver_params, 
-            host_buffer, 
-            host_buffer_size, 
-            device_buffer, 
-            device_buffer_size);
+            dn_params);
 
             if (solve_status != 0) {
                 // printf("HERE!\n");

@@ -125,25 +125,13 @@ TEST_F(BaseTest, solves_linear_system) {
 
     thrust::device_vector<double> expected = {3, -2, 1};
 
-    void* host_buffer = nullptr;
-    void* device_buffer = nullptr;
-    cusolverDnHandle_t handle;
-    cusolverDnParams_t params;
-    size_t host_size;
-    size_t device_size;
+    dn_solver_params params;
 
-    setup_solver(
-        n,
-        handle,
-        host_buffer,
-        host_size,
-        device_buffer,
-        device_size,
-        params
-    );
+    setup_solver(n, params);
 
-    ASSERT_GT(device_size, 0);
-    ASSERT_NE(device_buffer, nullptr);
+    ASSERT_GT(params.device_buffer_size, 0);
+    ASSERT_NE(params.device_buffer, nullptr);
+
 
     thrust::device_vector<double> res;
 
@@ -152,12 +140,7 @@ TEST_F(BaseTest, solves_linear_system) {
         A,
         b,
         res,
-        handle,
-        params,
-        host_buffer,
-        host_size,
-        device_buffer,
-        device_size
+        params
     );
     cudaDeviceSynchronize();
     for (int i = 0; i < n; i++) {
@@ -171,21 +154,9 @@ TEST_F(BaseTest, solves_when_singular) {
     thrust::device_vector<double> A_2 = {1, 0, 0, 0, 0, 0, 0, 0, 1};
     thrust::device_vector<double> b_2 = {1, 1, 1};
 
-    void *host_buffer = nullptr;
-    void *device_buffer = nullptr;
-    cusolverDnHandle_t handle;
-    cusolverDnParams_t params;
-    size_t host_size;
-    size_t device_size;
+    dn_solver_params params;
 
-    setup_solver(
-        n,
-        handle,
-        host_buffer,
-        host_size,
-        device_buffer,
-        device_size,
-        params);
+    setup_solver(n, params);
 
     thrust::device_vector<double> res(n);
     int status = solve_linear_system(
@@ -193,12 +164,7 @@ TEST_F(BaseTest, solves_when_singular) {
         A_2,
         b_2,
         res,
-        handle,
-        params,
-        host_buffer,
-        host_size,
-        device_buffer,
-        device_size);
+        params);
 
     thrust::device_vector<double> expected = {0.9999, 1e4, 0.9999};
     cudaDeviceSynchronize();
@@ -413,10 +379,10 @@ TEST_F(BaseTest, gets_sparse_submatrix) {
     thrust::device_vector<int> rows = {0, 2, 3, 4, 6};
     thrust::device_vector<int> col_offsets = {0, 3, 1, 2, 0, 3};
     thrust::device_vector<double> values = {1, 5, 2, 3, 5, 4};
-    sparse_format x = {rows, col_offsets, values};
+    matrix_sparse x = {rows, col_offsets, values};
 
     thrust::device_vector<int> alpha = {0, 1, 3};
-    sparse_format res;
+    matrix_sparse res;
     sparse_submatrix(n, x, alpha, res);
 
     thrust::device_vector<int> expected_rows = {0, 2, 3, 5};
@@ -433,7 +399,7 @@ TEST_F(BaseTest, solves_sparse_linear_system) {
     thrust::device_vector<int> rows = {0, 2, 3, 4, 6};
     thrust::device_vector<int> col_offsets = {0, 3, 1, 2, 0, 3};
     thrust::device_vector<double> values = {1, 5, 2, 3, 5, 4};
-    sparse_format x = {rows, col_offsets, values};
+    matrix_sparse x = {rows, col_offsets, values};
 
     thrust::device_vector<double> b = {21, 4, 6, 42};
 
@@ -458,7 +424,7 @@ TEST_F(BaseTest, solves_sparse_LCP) {
     thrust::device_vector<int> col_offset = {0, 1, 0, 1, 2, 1, 2, 3, 2, 3};
     thrust::device_vector<double> values = {2, 1, 1, 2, 1, 1, 2, 1, 1, 2};
 
-    sparse_format f = {rows, col_offset, values};
+    matrix_sparse f = {rows, col_offset, values};
 
     double epsilon = 0.00001;
     double sigma = 0.75;
