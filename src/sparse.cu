@@ -1,54 +1,97 @@
 #include "LCP_newton.hpp"
 #include <cudss.h>
+#include <thrust/zip_function.h>
 #include <thrust/host_vector.h>
+#include <thrust/adjacent_difference.h>
+#include <thrust/binary_search.h>
+#include <thrust/unique.h>
+#include <thrust/iterator/discard_iterator.h>
 
-void sparse_submatrix(int N, matrix_sparse &M, thrust::device_vector<int> &alpha, matrix_sparse &M_alpha) {
-    // Copy alpha to host for quick lookup and index mapping
-    thrust::host_vector<int> h_alpha = alpha;
-    int k = h_alpha.size();
+struct findIndex
+{
+    const int *row_offsets;
+    int num_rows;
 
-    // Create a map from global index -> new index (since alpha is sorted, direct index mapping)
-    std::vector<int> index_map(N, -1);
-    for (int i = 0; i < k; ++i)
-        index_map[h_alpha[i]] = i;
+    __host__ __device__
+    findIndex(const int *row_offsets_, int num_rows_) : row_offsets(row_offsets_), num_rows(num_rows_){}
 
-    // Copy sparse matrix to host
-    thrust::host_vector<int> h_row_offsets = M.row_offsets;
-    thrust::host_vector<int> h_column_indices = M.column_indices;
-    thrust::host_vector<double> h_values = M.values;
-
-    // Output containers
-    std::vector<int> new_row_offsets(k + 1, 0);
-    std::vector<int> new_column_indices;
-    std::vector<double> new_values;
-
-    // Construct the submatrix
-    for (int new_row = 0; new_row < k; ++new_row)
+    __host__ __device__ int operator()(int i) const
     {
-        int old_row = h_alpha[new_row];
-        int row_start = h_row_offsets[old_row];
-        int row_end = h_row_offsets[old_row + 1];
-
-        for (int j = row_start; j < row_end; ++j)
-        {
-            int col = h_column_indices[j];
-            if (index_map[col] != -1)
-            {
-                new_column_indices.push_back(index_map[col]);
-                new_values.push_back(h_values[j]);
-            }
-        }
-
-        new_row_offsets[new_row + 1] = new_column_indices.size();
+        return thrust::upper_bound(thrust::seq, row_offsets, row_offsets + num_rows + 1, i) - row_offsets - 1;
     }
+};
 
-    // Copy results back to device
-    M_alpha.row_offsets = thrust::device_vector<int>(new_row_offsets.begin(), new_row_offsets.end());
-    M_alpha.column_indices = thrust::device_vector<int>(new_column_indices.begin(), new_column_indices.end());
-    M_alpha.values = thrust::device_vector<double>(new_values.begin(), new_values.end());
+struct inAlpha
+{
+    const int *alpha;
+    const int k;
+
+    __host__ __device__
+    inAlpha(const int *alpha_, const int k_) : alpha(alpha_), k(k_){}
+
+    __host__ __device__ int operator()(thrust::tuple<int, int, double> i) const
+    {
+        int row = thrust::get<0>(i);
+        int col = thrust::get<1>(i);
+
+        bool row_in = thrust::binary_search(thrust::seq, alpha, alpha + k, row);
+        bool col_in = thrust::binary_search(thrust::seq, alpha, alpha + k, col);
+
+        return row_in && col_in;
+    }
+};
+
+void sparse_submatrix(int N, matrix_sparse &M, thrust::device_vector<int> &alpha, matrix_sparse &M_alpha)
+{
+    thrust::device_vector<int> rows(M.column_indices.size());
+    thrust::transform(
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator((int) M.column_indices.size()),
+        rows.begin(),
+        findIndex(M.row_offsets.data().get(), N)
+    );
+
+    thrust::device_vector<int> new_rows(rows.size());
+    M_alpha.column_indices.resize(rows.size());
+    M_alpha.values.resize(rows.size());
+    auto iterator = thrust::make_zip_iterator(new_rows.begin(), M_alpha.column_indices.begin(), M_alpha.values.begin());
+    auto end_it = thrust::copy_if(
+        thrust::make_zip_iterator(rows.begin(), M.column_indices.begin(), M.values.begin()),
+        thrust::make_zip_iterator(rows.end(), M.column_indices.end(), M.values.end()),
+        iterator,
+        inAlpha(alpha.data().get(), alpha.size())
+    );
+
+    int new_size = end_it - iterator;
+
+    new_rows.resize(new_size);
+    M_alpha.column_indices.resize(new_size);
+    M_alpha.values.resize(new_size);
+
+    thrust::lower_bound(
+        alpha.begin(), alpha.end(),
+        M_alpha.column_indices.begin(), M_alpha.column_indices.end(),
+        M_alpha.column_indices.begin()
+    );
+
+    M_alpha.row_offsets.resize(new_rows.size() + 1);
+
+    auto counting_begin = thrust::make_counting_iterator(0);
+
+    auto end = thrust::unique_by_key_copy(
+        new_rows.begin(), new_rows.end(),
+        counting_begin,
+        thrust::make_discard_iterator(),
+        M_alpha.row_offsets.begin()
+    );
+
+    int num_unique = end.second - M_alpha.row_offsets.begin();
+    M_alpha.row_offsets[num_unique] = M_alpha.column_indices.size();
+    M_alpha.row_offsets.resize(num_unique + 1);
+
 }
 
-    int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res)
+int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res)
 {
     cudssHandle_t handle;
     cudssConfig_t config;

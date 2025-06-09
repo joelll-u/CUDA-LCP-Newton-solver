@@ -349,13 +349,13 @@ static void BM_path_random_sparsity(benchmark::State &state)
     }
 }
 
-// BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
 // BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
 // BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
 // BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
 // BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
-BENCHMARK(BM_cuLCP_Porous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-BENCHMARK(BM_pathSolverPorous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10);
+// BENCHMARK(BM_cuLCP_Porous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+// BENCHMARK(BM_pathSolverPorous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10);
 // BENCHMARK(BM_LemkePorous)->RangeMultiplier(2)->Range(8, 64)->Unit(benchmark::kSecond)->Iterations(10);
 // BENCHMARK(BM_pathSolverBimatrix)->Unit(benchmark::kSecond)->Iterations(1);
 // BENCHMARK(BM_cuLCP_random_sparsity)->DenseRange(90, 99, 1)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
