@@ -135,7 +135,7 @@ int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &
     cudssMatrixCreateDn(
         &x,
         n,
-        n,
+        1,
         n,
         res.data().get(),
         CUDA_R_64F,

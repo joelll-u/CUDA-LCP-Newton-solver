@@ -1,16 +1,51 @@
 #include <thrust/device_vector.h>
 #include <cublas_v2.h>
 #include <vector>
+#include <iostream>
+#include <string>
+#include <sstream>
 
 #include "LCP_newton.hpp"
 #include "benchmarking_utils.cu"
 
-int main() {
-    int n = 128;
+bool parseBool(const std::string &str)
+{
+    return (str == "true" || str == "1");
+}
+
+int main(int argc, char* argv[]) {
+    int n = 1000;
+    double sparsity = 1.0;
+    bool use_sparse = false;
+    if (argc > 1)
+    {
+        std::istringstream ss_n(argv[1]);
+        if (!(ss_n >> n))
+        {
+            std::cerr << "Invalid integer for n. Using default: " << n << "\n";
+        }
+    }
+
+    if (argc > 2)
+    {
+        std::istringstream ss_sparsity(argv[2]);
+        if (!(ss_sparsity >> sparsity))
+        {
+            std::cerr << "Invalid double for sparsity. Using default: " << sparsity << "\n";
+        }
+    }
+
+    if (argc > 3)
+    {
+        use_sparse = parseBool(argv[3]);
+    }
+
+    unsigned int speed;
     std::vector<double> M;
-    create_porous_matrix(n, M);
     std::vector<double> q;
-    create_porous_q(n, q);
+
+    unsigned int seed = 0;
+    create_random_sparse(n, seed, sparsity, M, q);
 
     matrix_sparse x = matrix_to_csr(n * n, M);
 
@@ -32,7 +67,6 @@ int main() {
     // printf("\n");
 
     std::vector<double> res_host(n * n);
-
 
     thrust::device_vector<double> res;
     thrust::device_vector<double> q_d = q;

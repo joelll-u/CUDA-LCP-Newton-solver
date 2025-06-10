@@ -17,6 +17,8 @@
 #include <cusolverDn.h>
 #include <cusparse_v2.h>
 
+#include <nvtx3/nvToolsExt.h>
+
 using matrix_dense = thrust::device_vector<double>;
 
 typedef struct
