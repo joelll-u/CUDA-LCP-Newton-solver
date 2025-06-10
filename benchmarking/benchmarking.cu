@@ -301,19 +301,61 @@ static void BM_cuLCP_random_sparsity(benchmark::State &state) {
         std::vector<double> M_host;
         std::vector<double> q_host;
         create_random_sparse(n, seed, sparsity, M_host, q_host);
-
-        
+        std::vector<double> res_host(n);
         state.ResumeTiming();
-        thrust::device_vector<double> M = M_host;
+
         thrust::device_vector<double> q = q_host;
 
         thrust::device_vector<double> z_0(n);
         thrust::device_vector<double> res;
-
+        thrust::device_vector<double> M = M_host;
         int status = LCP_Newton(n, M, q, z_0, epsilon, xi, sigma, res);
 
-        // thrust::copy(res.begin(), res.end(), res_host.begin());
-        // cudaDeviceSynchronize();
+        thrust::copy(res.begin(), res.end(), res_host.begin());
+        cudaDeviceSynchronize();
+        if (status != 0)
+        {
+            printf("Uh oh, solve has failed with status %d\n", status);
+        }
+    }
+}
+
+static void BM_cuLCP_random_sparsity_with_sparse(benchmark::State &state) {
+    int n = 1000;
+    double sparsity = state.range(0)/100.0;
+    unsigned int seed = 25;
+
+    double epsilon = 0.00001;
+    double sigma = 0.75;
+    double xi = 0.25;
+
+    for (auto _ : state)
+    {
+        state.PauseTiming();
+        std::vector<double> M_host;
+        std::vector<double> q_host;
+        printf("seed %d\n", seed);
+
+        create_random_sparse(n, seed, sparsity, M_host, q_host);
+        // for (int i = 0; i < n; i++) {
+        //     for (int j = 0; j < n; j++) {
+        //         std::cout << M_host[i + (j*n)] << " ";
+        //     }
+        //     std::cout<<std::endl;
+        // }
+        matrix_sparse f = matrix_to_csr(n, M_host);
+
+        std::vector<double> res_host(n);
+        state.ResumeTiming();
+
+        thrust::device_vector<double> q = q_host;
+
+        thrust::device_vector<double> z_0(n);
+        thrust::device_vector<double> res;
+        int status = LCP_Newton(n, f, q, z_0, epsilon, xi, sigma, res);
+
+        thrust::copy(res.begin(), res.end(), res_host.begin());
+        cudaDeviceSynchronize();
         if (status != 0)
         {
             printf("Uh oh, solve has failed with status %d\n", status);
@@ -349,7 +391,36 @@ static void BM_path_random_sparsity(benchmark::State &state)
     }
 }
 
-BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+static void BM_path_random_sparsity_with_sparse(benchmark::State &state)
+{
+    int n = 1000;
+    double sparsity = state.range(0) / 100.0;
+    unsigned int seed = 0;
+
+    for (auto _ : state)
+    {
+        state.PauseTiming();
+        std::vector<double> M;
+        std::vector<double> q;
+        create_random_sparse(n, seed, sparsity, M, q);
+        initializeM_sparse(M, n);
+        initializeQ(q, n);
+        std::vector<double> z(n);
+        std::vector<double> f(n);
+        state.ResumeTiming();
+
+        int status = path_solve(n, z.data(), f.data());
+        // thrust::copy(res.begin(), res.end(), res_host.begin());
+        // cudaDeviceSynchronize();
+        if (status != 1)
+        {
+            printf("Uh oh, solve has failed with status %d\n", status);
+        }
+    }
+}
+
+
+// BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
 // BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
 // BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
 // BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
@@ -359,5 +430,7 @@ BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark
 // BENCHMARK(BM_LemkePorous)->RangeMultiplier(2)->Range(8, 64)->Unit(benchmark::kSecond)->Iterations(10);
 // BENCHMARK(BM_pathSolverBimatrix)->Unit(benchmark::kSecond)->Iterations(1);
 // BENCHMARK(BM_cuLCP_random_sparsity)->DenseRange(90, 99, 1)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_cuLCP_random_sparsity_with_sparse)->Arg(97)->Unit(benchmark::kSecond)->Iterations(1)->UseRealTime();
 // BENCHMARK(BM_path_random_sparsity)->DenseRange(90, 99, 1)->Unit(benchmark::kSecond)->Iterations(10);
+// BENCHMARK(BM_path_random_sparsity_with_sparse)->DenseRange(90, 99, 1)->Unit(benchmark::kSecond)->Iterations(10);
 BENCHMARK_MAIN();

@@ -109,7 +109,7 @@ void create_porous_q(int n, std::vector<double> &res) {
 matrix_sparse matrix_to_csr(int n, std::vector<double> &M) {
 
     std::vector<int> csr_row_ptr;
-    std::vector<int> csr_values;
+    std::vector<double> csr_values;
     std::vector<int> csr_col_indices;
 
     std::vector<int> row_nnz(n, 0);
@@ -246,7 +246,7 @@ void create_random_sparse(int n, unsigned int &seed, double sparsity, std::vecto
     create_random_P_matrix(n, -5, 5, seed, M);
     create_random_vector(n, -500, 500, seed, q);
 
-    int num_deleted = sparsity * (n * n);
+    int num_deleted = sparsity * (n * n) - n;
 
     delete_random_non_diag(n, num_deleted, seed, M);
 }

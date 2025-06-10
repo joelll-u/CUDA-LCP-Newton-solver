@@ -408,7 +408,7 @@ TEST_F(BaseTest, gets_sparse_submatrix) {
     int n = 4;
     thrust::device_vector<int> rows = {0, 2, 3, 4, 6};
     thrust::device_vector<int> col_offsets = {0, 3, 1, 2, 0, 3};
-    thrust::device_vector<double> values = {1, 5, 2, 3, 5, 4};
+    thrust::device_vector<double> values = {1.2, 5, 2, 3, 5, 4};
     matrix_sparse x = {rows, col_offsets, values};
 
     thrust::device_vector<int> alpha = {0, 1, 3};
@@ -417,7 +417,7 @@ TEST_F(BaseTest, gets_sparse_submatrix) {
 
     thrust::device_vector<int> expected_rows = {0, 2, 3, 5};
     thrust::device_vector<int> expected_col_offsets = {0, 2, 1, 0, 2};
-    thrust::device_vector<int> expected_values = {1, 5, 2, 5, 4};
+    thrust::device_vector<double> expected_values = {1.2, 5, 2, 5, 4};
 
     EXPECT_EQ(res.row_offsets, expected_rows);
     EXPECT_EQ(res.column_indices, expected_col_offsets);
