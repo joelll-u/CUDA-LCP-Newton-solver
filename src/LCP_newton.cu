@@ -130,8 +130,6 @@ void eval_linear(int N, thrust::device_vector<double> &M, thrust::device_vector<
         double alpha = 1.0;
         double beta = 1.0;
         thrust::copy(q.begin(), q.end(), res.begin());
-        // printf("res: "); for(int i = 0; i < N; i++) {printf("%f ", (double) res[i]);}; printf("\n");
-        // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z[i]);}; printf("\n");
         cublasDgemv(handle, CUBLAS_OP_N, N, N, &alpha, thrust::raw_pointer_cast(M.data()), N, thrust::raw_pointer_cast(z.data()), 1, &beta, thrust::raw_pointer_cast(res.data()), 1);
 
     return;
@@ -139,7 +137,6 @@ void eval_linear(int N, thrust::device_vector<double> &M, thrust::device_vector<
 
 void eval_linear_sparse(int N, matrix_sparse &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z, thrust::device_vector<double> &res, cusparseHandle_t &handle) 
 {
-    // Step 1: Copy q into res
     res.resize(N);
     thrust::copy(q.begin(), q.end(), res.begin());
 
@@ -156,7 +153,6 @@ void eval_linear_sparse(int N, matrix_sparse &M, thrust::device_vector<double> &
     cusparseCreateDnVec(&vecZ, N, thrust::raw_pointer_cast(z.data()), CUDA_R_64F);
     cusparseCreateDnVec(&vecRes, N, thrust::raw_pointer_cast(res.data()), CUDA_R_64F);
 
-    // Step 3: Perform SpMV: res = M*z + res
     const double alpha = 1.0;
     const double beta = 1.0;
 
@@ -189,7 +185,6 @@ void eval_linear_sparse(int N, matrix_sparse &M, thrust::device_vector<double> &
         CUSPARSE_SPMV_ALG_DEFAULT,
         dBuffer);
 
-    // Cleanup
     cudaFree(dBuffer);
     cusparseDestroySpMat(matA);
     cusparseDestroyDnVec(vecZ);
@@ -238,9 +233,7 @@ int solve_dense_linear_system(int N, thrust::device_vector<double> &A, thrust::d
 
     int info;
     cudaMemcpy(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost);
-    // printf("%d\n", info);
     if (info > 0) {
-        // return 1;
         for (int i = 0; i < N; i++) {
             A[i*N + i] += 1e-4;
         }
@@ -371,7 +364,6 @@ int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector
     wv.resize(N);
     double tau = 1.0;
     for (int i = 0; i < 100; i++){
-        // printf("%d\n", i);
         thrust::copy(z.begin(), z.end(), res.begin());
         thrust::copy(w.begin(), w.end(), wv.begin());
         auto idx = thrust::find(rhos.begin(), rhos.end(), tau);
@@ -387,9 +379,7 @@ int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector
         cublasDscal(handle, N, &x, wv.data().get(), 1);
         cublasDaxpy(handle, N, &tau, phi.data().get(), 1, wv.data().get(), 1);
         double merit_zv = get_merit(N, res, wv, handle);
-        // printf("new merit: %f\n", merit_zv);
         if (current_merit - (tau*xi*current_merit) > merit_zv) {
-            // printf("tau: %f\n", tau);
             return 0;
         }
         tau *= sigma;
@@ -415,18 +405,6 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
     if (sparse) {
         cusparseCreate(&sparse_handle);
     }
-    // printf("M:\n");
-    // for (int i = 0; i < N; i++) {
-    //     for (int j = 0; j < N; j++) {
-    //         printf("%f ", (double) M[j * N + i]);
-    //     }
-    //     printf("\n");
-    // }
-    // printf("q:\n");
-    // for (int i = 0; i < N; i++) {
-    //     printf("%f ", (double) q[i]);
-    // }
-    // printf("\n");
 
     dn_solver_params dn_params;
     if (!sparse) {
@@ -474,14 +452,11 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
     nvtxRangePop();
     for (int v = 0; v < max_iters; v++)
     {
-        // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
         // 1.check for termination
 
-        // printf("w: "); for(int i = 0; i < N; i++) {printf("%f ", (double) w[i]);}; printf("\n");
         nvtxRangePushA("get_merit");
         double merit = get_merit(N, z_v, w, handle);
 
-        // printf("merit: %f\n", merit);
         if (merit < epsilon)
         {
             thrust::copy(z_v.begin(), z_v.end(), res.begin());
@@ -500,7 +475,7 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
         #ifdef CULCP_TRACK_ALPHA_CHANGES
         thrust::device_vector<int> diff(N);
         auto end = thrust::set_difference(alpha.begin(), alpha.end(), old_alpha.begin(),old_alpha.end(), diff.begin());
-        cout << "Iteration " << v << "Change in alpha " << end - diff.begin() << endl;
+        cout << "Iteration " << v << ": Change in alpha " << end - diff.begin() << endl;
         #endif
         nvtxRangePop();
         // 2.2 compute u and phi
@@ -517,31 +492,6 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
         nvtxRangePushA("subvector");
         subvector(N, q, alpha, q_alpha);
         nvtxRangePop();
-        // printf("alpha_size %d, nnz %d\n",(int) alpha.size(), (int) M_alpha_f.values.size());
-
-        // printf("alpha: "); for (int i = 0; i < alpha.size(); i++) {printf("%d ", (int) alpha[i]);}; printf("\n");
-        // printf("gamma: "); for (int i = 0; i < gamma.size(); i++) {printf("%d ", (int) gamma[i]);}; printf("\n");
-        // printf("M_alpha:\n");
-        // printf("%d %d %d %d\n", M_alpha_f.row_offsets.size(), M_alpha_f.column_indices.size(), M_alpha_f.values.size(), q_alpha.size());
-        // for (int i = 0; i < M_alpha_f.row_offsets.size(); i++) {
-        //     printf("%d ", (int) M_alpha_f.row_offsets[i]);
-        // }
-        // cout <<endl << endl;
-        // for (int i = 0; i < M_alpha_f.column_indices.size(); i++)
-        // {
-        //     printf("%d ", (int)M_alpha_f.column_indices[i]);
-        // }
-        // cout << endl << endl;
-        // for (int i = 0; i < M_alpha_f.values.size(); i++) {
-        //     cout << (double) M_alpha_f.values[i] << " ";
-        // }
-        // cout << endl << endl;
-        // printf("q:\n");
-        // for (int i = 0; i < alpha.size(); i++)
-        // {
-        //     printf("%f ", (double)q_alpha[i]);
-        // }
-        // printf("\n");
 
         nvtxRangePushA("solve");
         thrust::device_vector<double> u_alpha;
@@ -554,19 +504,11 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
             dn_params);
 
             if (solve_status != 0) {
-                // printf("HERE!\n");
-                // printf("grad: ");
                 thrust::device_vector<double> grad;
                 gradient(N, z_v, w, alpha, gamma, M, handle, grad);
-                // for (int i = 0; i < alpha.size(); i++) {
-                //     printf("%f ", (double) u_alpha[i]);
-                // }
-                // printf("\n");
+
                 gradient_step(N, -1, z_v, w, alpha, gamma, M, q, handle);
-                // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
                 continue;
-                
-                // return DEGENERACY_ENCOUNTERED;
             }
         } else {
             int solve_status = sparse_solve(alpha.size(), M_alpha_f, q_alpha, u_alpha);
@@ -574,13 +516,10 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
         nvtxRangePop();
         nvtxRangePushA("get_u");
         ::cuda::std::negate<double> minus;
-        // printf("u_alpha0: %f\n", (double) u_alpha[0]);
-        // printf("u_alpha: "); for(int i = 0; i < 1; i++) {printf("%f ", (double) u_alpha[i]);}; printf("\n");
         thrust::transform(u_alpha.begin(), u_alpha.end(), u_alpha.begin(), minus);
         scatter_vector(N, u_alpha, alpha, u);
         nvtxRangePop();
 
-        // printf("u: "); for(int i = 0; i < N; i++) {printf("%f ", (double) u[i]);}; printf("\n");
         nvtxRangePushA("eval_linear");
         if (!sparse) {
             eval_linear(N, M, q, u, phi, handle);
@@ -588,13 +527,11 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
             eval_linear_sparse(N, f, q, u, phi, sparse_handle);
         }
         nvtxRangePop();
-        // printf("phi: "); for(int i = 0; i < N; i++) {printf("%f ", (double) phi[i]);}; printf("\n");
          // 3. check for termination
 
          nvtxRangePushA("get_merit");
         if (solve_termination_test(N, u, phi, epsilon, handle))
         {
-            // printf("HERE! %d\n", (int) u.size());
             thrust::copy(u.begin(), u.end(), res.begin());
             return SOLVE_SUCCESSFUL;
         }
@@ -604,7 +541,6 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
         thrust::device_vector<double> rhos;
         get_rhos(N, z_v, u, phi, w, gamma, alpha, rhos);
         nvtxRangePop();
-        // printf("rho: "); for(int i = 0; i < rhos.size(); i++) {printf("%f ", (double) rhos[i]);}; printf("\n");
         // 4.2 calculate z+1
         nvtxRangePushA("get_next_iter");
         thrust::device_vector<double> new_z(N);
@@ -615,30 +551,17 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
         {
             if (sparse)
                 throw std::invalid_argument("Sparse non degenerate matrices are not allowed");
-            // thrust::device_vector<double> grad;
-            // gradient(N, z_v, w, alpha, gamma, M, handle, grad);
-            // for (int i = 0; i < alpha.size(); i++) {
-            //     printf("%f ", (double) u_alpha[i]);
-            // }
-            // printf("\n");
             int status = gradient_step(N, -1e-2, z_v, w, alpha, gamma, M, q, handle);
             if (status == 1)
             {
                 return STATIONARY_POINT_FOUND;
             }
-             // printf("z: "); for(int i = 0; i < N; i++) {printf("%f ", (double) z_v[i]);}; printf("\n");
             continue;
-
-            // return DEGENERACY_ENCOUNTERED;
-            return (SOLVER_RESULT) status;
          }
-        // printf("-----------\n");
 
         thrust::copy(new_z.begin(), new_z.end(), z_v.begin());
         thrust::copy(new_w.begin(), new_w.end(), w.begin());
         nvtxRangePop();
-        // z_v = new_z;
-        // w = new_w;
     }
     return TERMINATION_LIMIT;
 }

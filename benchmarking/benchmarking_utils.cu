@@ -9,6 +9,13 @@
 #include "LCP_newton.hpp"
 
 
+typedef struct
+{
+    std::vector<int> row_offsets;
+    std::vector<int> column_indices;
+    std::vector<double> values;
+} host_matrix_sparse;
+
 void create_random_vector(int n, double a, double b, unsigned int &seed, std::vector<double> &res)
 {
     res.reserve(n);
@@ -33,13 +40,6 @@ void create_random_P_matrix(int n, double a, double b, unsigned int &seed, std::
 
     std::vector<double> B_host_unfull;
     create_random_vector((n*(n-1))/2, a, b, seed, B_host_unfull);
-
-    // 00 10
-    // 01 11
-    // 02 12
-    // 03 13
-    //
-    //
 
     std::vector<double> B_host(n*n);
     int cnt = 0;
@@ -106,7 +106,7 @@ void create_porous_q(int n, std::vector<double> &res) {
     }
 }
 
-matrix_sparse matrix_to_csr(int n, std::vector<double> &M) {
+host_matrix_sparse matrix_to_csr(int n, std::vector<double> &M) {
 
     std::vector<int> csr_row_ptr;
     std::vector<double> csr_values;
@@ -163,7 +163,6 @@ void delete_random_non_diag(int n, int num_to_be_deleted, unsigned int &seed, st
 
     if (num_to_be_deleted <= ND / 2)
     {
-        // === Strategy 1: Sparse deletion, sample indices ===
         std::unordered_set<int> chosen;
         std::uniform_int_distribution<int> dist(0, N - 1);
         int deleted = 0;
@@ -183,7 +182,6 @@ void delete_random_non_diag(int n, int num_to_be_deleted, unsigned int &seed, st
     }
     else
     {
-        // === Strategy 2: Dense deletion, zero all and restore remaining ===
         std::vector<int> non_diag_indices;
         non_diag_indices.reserve(ND);
 
@@ -222,14 +220,12 @@ void delete_random_diag(int n, int num_to_be_deleted, unsigned int &seed, std::v
     }
     std::mt19937 rng(seed);
 
-    // Create a list of diagonal positions as integers [0, n-1]
     std::vector<int> diag_positions(n);
     for (int i = 0; i < n; ++i)
     {
         diag_positions[i] = i;
     }
 
-    // Shuffle and zero selected diagonal entries
     std::shuffle(diag_positions.begin(), diag_positions.end(), rng);
 
     for (int i = 0; i < num_to_be_deleted; ++i)

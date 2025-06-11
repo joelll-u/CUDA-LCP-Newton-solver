@@ -13,6 +13,7 @@
 #include <thrust/partition.h>
 #include <thrust/gather.h>
 #include <thrust/scatter.h>
+#include <thrust/set_operations.h>
 #include <thrust/logical.h>
 #include <cusolverDn.h>
 #include <cusparse_v2.h>

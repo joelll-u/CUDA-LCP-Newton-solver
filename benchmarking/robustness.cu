@@ -9,10 +9,8 @@ int bimatrix_game(int n, unsigned int &seed) {
     create_random_vector(n*n, 1, 5, seed, B);
 
     std::vector<double> M_host(4 * n * n, 0);
-    // printf("%d %d\n", A.size(), B.size());
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
-            // printf("%d \n", (i*n + j));
             M_host[i * (2*n) + j + n] = A[i*n + j];
             M_host[(i + n) * (2*n) + j] = B[i*n + j];
         }
@@ -29,7 +27,6 @@ int bimatrix_game(int n, unsigned int &seed) {
     double xi = 0.25;
 
     SOLVER_RESULT status = LCP_Newton(2 * n, M, q, z_0, epsilon, xi, sigma, z);
-    // printf("SOLVER_RESULT: %d\n", (int) status);
     cudaDeviceSynchronize();
     if(status == SOLVE_SUCCESSFUL) {
         return 0;
@@ -56,34 +53,22 @@ int main() {
     int degen_n = 1000;
 
     unsigned int seed = 0;
-    // for (int n = 4; n <= MAX_N; n = n*2) {
-    //     printf("Testing with n = %d\n", n);
-    //     int bmg_failures = 0;
-    //     for (int j = 0; j < ITERS_PER_N; j++) {
-    //         bmg_failures += bimatrix_game(n, seed);
-    //     }
-    //     printf("Bimatrix Game Failures: %d / %d\n----\n", bmg_failures, ITERS_PER_N);
-    // }
+    for (int n = 4; n <= MAX_N; n = n*2) {
+        printf("Testing with n = %d\n", n);
+        int bmg_failures = 0;
+        for (int j = 0; j < ITERS_PER_N; j++) {
+            bmg_failures += bimatrix_game(n, seed);
+        }
+        printf("Bimatrix Game Failures: %d / %d\n----\n", bmg_failures, ITERS_PER_N);
+    }
     for (double i = 0; i < 0.0099; i+=0.001) {
         int feasible_count = 0;
         int solved_count = 0;
         for (int j = 0; j < ITERS_PER_N; j++) {
             std::vector<double> M;
             std::vector<double> q;
-            // printf("seed: %d\n", seed);
             create_degen_matrix(degen_n, seed, i, M, q);
-            // printf("M:\n");
-            // for (int i1 = 0; i1 < degen_n; i1++) {
-            //     for (int j1 = 0; j1 < degen_n; j1++) {
-            //         printf("%f ", (double) M[j1 * degen_n + i1]);
-            //     }
-            //     printf("\n");
-            // }
-            // printf("q: ");
-            // for (int i1 = 0; i1 < degen_n; i1++) {
-            //     printf("%f ", (double) q[i1]);
-            // }
-            // printf("\n");
+
             int path_solved = path_simple_solve(degen_n, M, q, true);
             feasible_count += path_solved;
 
@@ -98,12 +83,7 @@ int main() {
             double xi = 0.25;
 
             SOLVER_RESULT status = LCP_Newton(degen_n, M_d, q_d, z_0, epsilon, xi, sigma, z);
-            // printf("z: \n");
-            // for (int i = 0; i < degen_n; i++)
-            // {
-            //     printf("%f ", (double) z[i]);
-            // }
-            // printf("\n");
+            
             cudaDeviceSynchronize();
             if (status == SOLVE_SUCCESSFUL && path_solved == 1) {
                 solved_count++;

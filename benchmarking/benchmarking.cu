@@ -67,33 +67,6 @@ static void BM_pathSolver(benchmark::State &state) {
 
         status = path_solve(n, z.data(), f.data());
 
-        // pathMain(n, n * n, &status, z, f, lb, ub);
-        // printf("M: \n");
-        // for (int i = 0; i < n; i++) {
-        //     for (int j = 0; j < n; j++) {
-        //         printf("%f ", M_host[i*n + j]);
-        //     }
-        //     printf("\n");
-        // }
-
-        // printf("Q: \n");
-        // for (int i = 0; i < n; i++) {
-        //     printf("%f ", q_host[i]);
-        // }
-        // printf("\n");
-
-        // printf("Mz+q: \n");
-        // funcEval(n, z, f);
-        // for (int i = 0; i < n; i++) {
-        //     printf("%f ", z[i]);
-        // }
-        // printf("\n");
-
-        // for (int i = 0; i < n; i++) {
-        //     printf("%f ", f[i]);
-        // }
-        // printf("\n");
-
         if (status != 1)
         {
             printf("Uh oh, solve has failed with status %d!\n", status);
@@ -122,32 +95,6 @@ static void BM_LemkeMethod(benchmark::State &state) {
 
         status = path_solve(n, z.data(), f.data(), true);
 
-        // pathMain(n, n * n, &status, z, f, lb, ub);
-        // printf("M: \n");
-        // for (int i = 0; i < n; i++) {
-        //     for (int j = 0; j < n; j++) {
-        //         printf("%f ", M_host[i*n + j]);
-        //     }
-        //     printf("\n");
-        // }
-
-        // printf("Q: \n");
-        // for (int i = 0; i < n; i++) {
-        //     printf("%f ", q_host[i]);
-        // }
-        // printf("\n");
-
-        // printf("Mz+q: \n");
-        // funcEval(n, z, f);
-        // for (int i = 0; i < n; i++) {
-        //     printf("%f ", z[i]);
-        // }
-        // printf("\n");
-
-        // for (int i = 0; i < n; i++) {
-        //     printf("%f ", f[i]);
-        // }
-        // printf("\n");
 
         if (status != 1)
         {
@@ -163,24 +110,11 @@ static void BM_cuLCP_Porous(benchmark::State &state) {
     std::vector<double> q;
     create_porous_q(n, q);
 
-    matrix_sparse x = matrix_to_csr(n*n, M);
-        
-    // printf("M: \n");
-    // for (int i = 0; i < n*n; i++) {
-    //     for (int j = 0; j < n*n; j++) {
-    //         printf("%f ", M[i*n*n + j]);
-    //     }
-    //     printf("\n");
-    // }
+    host_matrix_sparse f_host = matrix_to_csr(n*n, M);
 
     double epsilon = 0.00001;
     double sigma = 0.75;
     double xi = 0.25;
-
-    // for (int i = 0; i < n*n; i++) {
-    //     printf("%f ", q[i]);
-    // }
-    // printf("\n");
 
     std::vector<double> res_host(n*n);
 
@@ -190,6 +124,7 @@ static void BM_cuLCP_Porous(benchmark::State &state) {
         thrust::device_vector<double> res;
         thrust::device_vector<double> q_d = q;
         thrust::device_vector<double> z_0(n * n, 0);
+        matrix_sparse x = {f_host.row_offsets, f_host.column_indices, f_host.values};
 
         int status = LCP_Newton(n*n, x, q_d, z_0, epsilon, xi, sigma, res);
 
@@ -338,12 +273,13 @@ static void BM_cuLCP_random_sparsity_with_sparse(benchmark::State &state) {
         std::vector<double> q_host;
 
         create_random_sparse(n, seed, sparsity, M_host, q_host);
-        matrix_sparse f = matrix_to_csr(n, M_host);
+        host_matrix_sparse f_host = matrix_to_csr(n, M_host);
 
         std::vector<double> res_host(n);
         state.ResumeTiming();
 
         thrust::device_vector<double> q = q_host;
+        matrix_sparse f = {f_host.row_offsets, f_host.column_indices, f_host.values};
 
         thrust::device_vector<double> z_0(n);
         thrust::device_vector<double> res;
@@ -411,19 +347,19 @@ static void BM_path_random_sparsity_with_sparse(benchmark::State &state)
 }
 
 
-// BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-// BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-// BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
-// BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
-// BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
-// BENCHMARK(BM_cuLCP_Porous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-// BENCHMARK(BM_pathSolverPorous)->RangeMultiplier(2)->Range(8, 128)->Unit(benchmark::kSecond)->Iterations(10);
-// BENCHMARK(BM_LemkePorous)->RangeMultiplier(2)->Range(8, 64)->Unit(benchmark::kSecond)->Iterations(10);
-// BENCHMARK(BM_pathSolverBimatrix)->Unit(benchmark::kSecond)->Iterations(1);
-// BENCHMARK(BM_cuLCP_random_sparsity)->DenseRange(90, 99, 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-// BENCHMARK(BM_cuLCP_random_sparsity_with_sparse)->DenseRange(910, 990,10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-// BENCHMARK(BM_path_random_sparsity)->DenseRange(910, 990, 10)->Unit(benchmark::kSecond)->Iterations(10);
-// BENCHMARK(BM_path_random_sparsity_with_sparse)->DenseRange(910, 990, 10)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_cuLCP_SOLVER)->RangeMultiplier(2)->Range(8, 8 << 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
+BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8 << 9, 8 << 9)->Unit(benchmark::kSecond)->Iterations(2);
+BENCHMARK(BM_cuLCP_Porous)->RangeMultiplier(2)->Range(8, 256)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_pathSolverPorous)->RangeMultiplier(2)->Range(8, 256)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_LemkePorous)->RangeMultiplier(2)->Range(8, 64)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_pathSolverBimatrix)->Unit(benchmark::kSecond)->Iterations(1);
+BENCHMARK(BM_cuLCP_random_sparsity)->DenseRange(90, 99, 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_cuLCP_random_sparsity_with_sparse)->DenseRange(910, 990,10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_path_random_sparsity)->DenseRange(910, 990, 10)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_path_random_sparsity_with_sparse)->DenseRange(910, 990, 10)->Unit(benchmark::kSecond)->Iterations(10);
 BENCHMARK(BM_cuLCP_random_sparsity_with_sparse)->DenseRange(990, 999, 1)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
 BENCHMARK(BM_path_random_sparsity)->DenseRange(990, 999, 1)->Unit(benchmark::kSecond)->Iterations(10);
 BENCHMARK(BM_path_random_sparsity_with_sparse)->DenseRange(990, 999, 1)->Unit(benchmark::kSecond)->Iterations(10);
