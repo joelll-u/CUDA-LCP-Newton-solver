@@ -105,14 +105,12 @@ static void BM_LemkeMethod(benchmark::State &state) {
 
 static void BM_cuLCP_Porous(benchmark::State &state) {
     int n = state.range(0);
-    std::vector<double> M;
-    create_porous_matrix(n, M);
     std::vector<double> q;
     create_porous_q(n, q);
 
-    host_matrix_sparse f_host = matrix_to_csr(n*n, M);
+    host_matrix_sparse f_host = create_sparse_porous_matrix(n);
 
-    double epsilon = 0.00001;
+    double epsilon = 0.00000001;
     double sigma = 0.75;
     double xi = 0.25;
 
@@ -140,8 +138,10 @@ static void BM_pathSolverPorous(benchmark::State &state)
 {
     int n = state.range(0);
     std::vector<double> M_host;
-    create_porous_matrix(n, M_host);
-    initializeM_sparse(M_host, n*n);
+    host_matrix_sparse x = create_sparse_porous_matrix(n);
+    initializeM_from_sparse_symmetric(x, n*n);
+
+    std::cout << n << " " << x.values.size() << std::endl;
 
     std::vector<double> q_host;
     create_porous_q(n, q_host);
@@ -167,8 +167,8 @@ static void BM_LemkePorous(benchmark::State &state)
 {
     int n = state.range(0);
     std::vector<double> M_host;
-    create_porous_matrix(n, M_host);
-    initializeM(M_host, n * n);
+    host_matrix_sparse x = create_sparse_porous_matrix(n);
+    initializeM_from_sparse_symmetric(x, n * n);
 
     std::vector<double> q_host;
     create_porous_q(n, q_host);
@@ -181,7 +181,7 @@ static void BM_LemkePorous(benchmark::State &state)
 
     for (auto _ : state)
     {
-        status = path_solve(n * n, z.data(), f.data());
+        status = path_solve(n * n, z.data(), f.data(), true);
 
         if (status != 1)
         {
@@ -222,8 +222,11 @@ static void BM_pathSolverBimatrix(benchmark::State &state)
 }
 
 static void BM_cuLCP_random_sparsity(benchmark::State &state) {
-    int n = 2000;
-    double sparsity = state.range(0)/1000.0;
+    int n = 10000;
+    int divisor = state.range(1);
+    int subtractor = 10 - state.range(0);
+    double sparsity = ((double) (divisor - subtractor))/divisor;
+
     unsigned int seed = 1;
 
     double epsilon = 0.00001;
@@ -256,8 +259,12 @@ static void BM_cuLCP_random_sparsity(benchmark::State &state) {
 }
 
 static void BM_cuLCP_random_sparsity_with_sparse(benchmark::State &state) {
-    int n = 2000;
-    double sparsity = state.range(0)/1000.0;
+    int n = 10000;
+    int divisor = state.range(1);
+    int subtractor = 10 - state.range(0);
+    double sparsity = ((double)(divisor - subtractor)) / divisor;
+
+    
     unsigned int seed = 1;
     // set to one because 0 was causing an unknown error - tracked down to cudss analyse failing for a specific matrix
     // have submitted bug report to nvidia but for the mean time this will do 
@@ -296,8 +303,12 @@ static void BM_cuLCP_random_sparsity_with_sparse(benchmark::State &state) {
 
 static void BM_path_random_sparsity(benchmark::State &state)
 {
-    int n = 2000;
-    double sparsity = state.range(0) / 1000.0;
+    int n = 10000;
+    int divisor = state.range(1);
+    int subtractor = 10 - state.range(0);
+    double sparsity = ((double) (divisor - subtractor))/divisor;
+
+
     unsigned int seed = 1;
 
     for (auto _ : state)
@@ -322,8 +333,12 @@ static void BM_path_random_sparsity(benchmark::State &state)
 
 static void BM_path_random_sparsity_with_sparse(benchmark::State &state)
 {
-    int n = 2000;
-    double sparsity = state.range(0) / 1000.0;
+    int n = 10000;
+    int divisor = state.range(1);
+    int subtractor = 10 - state.range(0);
+    double sparsity = ((double) (divisor - subtractor))/divisor;
+
+
     unsigned int seed = 1;
 
     for (auto _ : state)
@@ -352,15 +367,12 @@ BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::
 BENCHMARK(BM_pathSolver)->RangeMultiplier(2)->Range(8 << 9, 8 << 10)->Unit(benchmark::kSecond)->Iterations(2);
 BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8, 8 << 8)->Unit(benchmark::kSecond)->Iterations(10);
 BENCHMARK(BM_LemkeMethod)->RangeMultiplier(2)->Range(8 << 9, 8 << 9)->Unit(benchmark::kSecond)->Iterations(2);
-BENCHMARK(BM_cuLCP_Porous)->RangeMultiplier(2)->Range(8, 256)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-BENCHMARK(BM_pathSolverPorous)->RangeMultiplier(2)->Range(8, 256)->Unit(benchmark::kSecond)->Iterations(10);
-BENCHMARK(BM_LemkePorous)->RangeMultiplier(2)->Range(8, 64)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_cuLCP_Porous)->RangeMultiplier(2)->Range(128, 4096)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
+BENCHMARK(BM_pathSolverPorous)->RangeMultiplier(2)->Range(128, 4096)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_LemkePorous)->RangeMultiplier(2)->Range(128, 1024)->Unit(benchmark::kSecond)->Iterations(10);
 BENCHMARK(BM_pathSolverBimatrix)->Unit(benchmark::kSecond)->Iterations(1);
-BENCHMARK(BM_cuLCP_random_sparsity)->DenseRange(90, 99, 10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-BENCHMARK(BM_cuLCP_random_sparsity_with_sparse)->DenseRange(910, 990,10)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-BENCHMARK(BM_path_random_sparsity)->DenseRange(910, 990, 10)->Unit(benchmark::kSecond)->Iterations(10);
-BENCHMARK(BM_path_random_sparsity_with_sparse)->DenseRange(910, 990, 10)->Unit(benchmark::kSecond)->Iterations(10);
-BENCHMARK(BM_cuLCP_random_sparsity_with_sparse)->DenseRange(990, 999, 1)->Unit(benchmark::kSecond)->Iterations(10)->UseRealTime();
-BENCHMARK(BM_path_random_sparsity)->DenseRange(990, 999, 1)->Unit(benchmark::kSecond)->Iterations(10);
-BENCHMARK(BM_path_random_sparsity_with_sparse)->DenseRange(990, 999, 1)->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_cuLCP_random_sparsity)->ArgsProduct({benchmark::CreateDenseRange(0,9,1), benchmark::CreateRange(1000, 10000, 10)})->Unit(benchmark::kSecond)->Iterations(1)->UseRealTime();
+BENCHMARK(BM_cuLCP_random_sparsity_with_sparse)->ArgsProduct({benchmark::CreateDenseRange(0,9,1), benchmark::CreateRange(1000, 10000, 10)})->Unit(benchmark::kSecond)->Iterations(1)->UseRealTime();
+BENCHMARK(BM_path_random_sparsity)->ArgsProduct({benchmark::CreateDenseRange(0,9,1), benchmark::CreateRange(1000, 10000, 10)})->Unit(benchmark::kSecond)->Iterations(10);
+BENCHMARK(BM_path_random_sparsity_with_sparse)->ArgsProduct({benchmark::CreateDenseRange(0, 9, 1), benchmark::CreateRange(1000, 10000, 10)})->Unit(benchmark::kSecond)->Iterations(10);
 BENCHMARK_MAIN();

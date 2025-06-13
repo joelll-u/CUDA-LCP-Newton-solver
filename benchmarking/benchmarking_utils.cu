@@ -95,6 +95,55 @@ void create_porous_matrix(int n, std::vector<double> &res) {
     }
 }
 
+host_matrix_sparse create_sparse_porous_matrix(int N) {
+    host_matrix_sparse crs;
+    crs.row_offsets.push_back(0); // First row starts at index 0
+
+    for (int blockRow = 0; blockRow < N; ++blockRow)
+    {
+        for (int localRow = 0; localRow < N; ++localRow)
+        {
+            int globalRow = blockRow * N + localRow;
+
+            // For each row, build its non-zero entries
+            // These may come from up to 3 blocks: prev (-I), current (S), next (-I)
+
+            // 1. Previous block: -I
+            if (blockRow > 0)
+            {
+                int globalCol = (blockRow - 1) * N + localRow;
+                crs.values.push_back(-1.0);
+                crs.column_indices.push_back(globalCol);
+            }
+
+            // 2. Current block: S (tridiagonal -1, 4, -1)
+            for (int offset = -1; offset <= 1; ++offset)
+            {
+                int localCol = localRow + offset;
+                if (localCol >= 0 && localCol < N)
+                {
+                    int globalCol = blockRow * N + localCol;
+                    double val = (offset == 0) ? 4.0 : -1.0;
+                    crs.values.push_back(val);
+                    crs.column_indices.push_back(globalCol);
+                }
+            }
+
+            // 3. Next block: -I
+            if (blockRow < N - 1)
+            {
+                int globalCol = (blockRow + 1) * N + localRow;
+                crs.values.push_back(-1.0);
+                crs.column_indices.push_back(globalCol);
+            }
+
+            crs.row_offsets.push_back(static_cast<int>(crs.values.size()));
+        }
+    }
+
+    return crs;
+}
+
 void create_porous_q(int n, std::vector<double> &res) {
     res.resize(n*n);
     for (int i = 0; i < n*n; i++) {

@@ -93,6 +93,8 @@ void sparse_submatrix(int N, matrix_sparse &M, thrust::device_vector<int> &alpha
 
 int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &q, thrust::device_vector<double> &res)
 {
+
+    nvtxRangePushA("setup_solve");
     cudssHandle_t handle;
     cudssConfig_t config;
     cudssData_t data;
@@ -142,10 +144,17 @@ int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &
         CUDSS_LAYOUT_COL_MAJOR
     );
 
-
+    nvtxRangePop();
+    nvtxRangePushA("analysis");
     cudssExecute(handle, CUDSS_PHASE_ANALYSIS, config, data, A, x, b);
+    nvtxRangePop();
+    nvtxRangePushA("factorization");
     cudssExecute(handle, CUDSS_PHASE_FACTORIZATION, config, data, A, x, b);
+    nvtxRangePop();
+    nvtxRangePushA("solving");
     cudssExecute(handle, CUDSS_PHASE_SOLVE, config, data, A, x, b);
+    nvtxRangePop();
+    nvtxRangePushA("teardown");
 
     cudssConfigDestroy(config);
     cudssDataDestroy(handle, data);
@@ -153,5 +162,6 @@ int sparse_solve(int n, matrix_sparse &A_sparse, thrust::device_vector<double> &
     cudssMatrixDestroy(x);
     cudssMatrixDestroy(b);
     cudssDestroy(handle);
+    nvtxRangePop();
     return 0;
 }

@@ -5,6 +5,8 @@
 
 using namespace std;
 
+// #define CULCP_TRACK_ALPHA_CHANGES
+
 struct is_negative
 {
     const double *u;
@@ -197,7 +199,7 @@ bool norm_termination_test(int N, thrust::device_vector<double> &z, thrust::devi
     return nrm <= epsilon;
 }
 
-int solve_dense_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, dn_solver_params params)
+int solve_dense_linear_system(int N, thrust::device_vector<double> &A, thrust::device_vector<double> &b, thrust::device_vector<double> &res, dn_solver_params &params)
 {
     res.resize(N);
     cudaDataType_t type = CUDA_R_64F;
@@ -290,6 +292,7 @@ void setup_solver(int N, dn_solver_params &params_s)
     }
 
     cudaMalloc(&params_s.device_buffer, params_s.device_buffer_size);
+    params_s.initialised = true;
 
     return;
 }
@@ -391,7 +394,7 @@ int get_next_iter(int N, thrust::device_vector<double> &z, thrust::device_vector
 SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, thrust::device_vector<double> &q, thrust::device_vector<double> &z0, double epsilon, double xi, double sigma, thrust::device_vector<double> &res) 
 {
     nvtxRangePushA("setup");
-    int max_iters = 100;
+    int max_iters = 10000;
     res.resize(N);
     cublasHandle_t handle;
     cublasStatus_t status = cublasCreate(&handle);
@@ -456,10 +459,13 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
 
         nvtxRangePushA("get_merit");
         double merit = get_merit(N, z_v, w, handle);
-
         if (merit < epsilon)
         {
+            cublasDestroy_v2(handle);
+            if (sparse) cusparseDestroy(sparse_handle);
             thrust::copy(z_v.begin(), z_v.end(), res.begin());
+            nvtxRangePop();
+            // cout << v + 1<< endl;
             return SOLVE_SUCCESSFUL;
         }
         nvtxRangePop();
@@ -468,74 +474,83 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
 
         nvtxRangePushA("alpha_set");
 
-        #ifdef CULCP_TRACK_ALPHA_CHANGES
         thrust::device_vector<int> old_alpha = alpha;
-        #endif
         alpha_set(N, z_v, w, alpha, gamma);
+        bool alpha_same = false;
         #ifdef CULCP_TRACK_ALPHA_CHANGES
         thrust::device_vector<int> diff(N);
-        auto end = thrust::set_difference(alpha.begin(), alpha.end(), old_alpha.begin(),old_alpha.end(), diff.begin());
-        cout << "Iteration " << v << ": Change in alpha " << end - diff.begin() << endl;
+        auto end = thrust::set_symmetric_difference(alpha.begin(), alpha.end(), old_alpha.begin(), old_alpha.end(), diff.begin());
+        cout << "Iteration " << v << ": Change in alpha " << end - diff.begin() << "/" << alpha.size() << endl;
+        alpha_same = (end - diff.begin()) == 0;
+        #else
+        alpha_same = old_alpha.size() == alpha.size() && thrust::equal(alpha.begin(), alpha.end(), old_alpha.begin());
         #endif
         nvtxRangePop();
         // 2.2 compute u and phi
 
-        matrix_sparse M_alpha_f;
-        nvtxRangePushA("submatrix");
-        if (sparse) {
-            sparse_submatrix(N, f, alpha, M_alpha_f);
-        } else {
-            submatrix(N, M, alpha, M_alpha);
-        }
-        nvtxRangePop();
-
-        nvtxRangePushA("subvector");
-        subvector(N, q, alpha, q_alpha);
-        nvtxRangePop();
-
-        nvtxRangePushA("solve");
-        thrust::device_vector<double> u_alpha;
-        if (!sparse) {
-            int solve_status = solve_dense_linear_system(
-            alpha.size(),
-            M_alpha, 
-            q_alpha, 
-            u_alpha, 
-            dn_params);
-
-            if (solve_status != 0) {
-                thrust::device_vector<double> grad;
-                gradient(N, z_v, w, alpha, gamma, M, handle, grad);
-
-                gradient_step(N, -1, z_v, w, alpha, gamma, M, q, handle);
-                continue;
-            }
-        } else {
-            int solve_status = sparse_solve(alpha.size(), M_alpha_f, q_alpha, u_alpha);
-        }
-        nvtxRangePop();
-        nvtxRangePushA("get_u");
-        ::cuda::std::negate<double> minus;
-        thrust::transform(u_alpha.begin(), u_alpha.end(), u_alpha.begin(), minus);
-        scatter_vector(N, u_alpha, alpha, u);
-        nvtxRangePop();
-
-        nvtxRangePushA("eval_linear");
-        if (!sparse) {
-            eval_linear(N, M, q, u, phi, handle);
-        } else {
-            eval_linear_sparse(N, f, q, u, phi, sparse_handle);
-        }
-        nvtxRangePop();
-         // 3. check for termination
-
-         nvtxRangePushA("get_merit");
-        if (solve_termination_test(N, u, phi, epsilon, handle))
+        if(!alpha_same || v == 0)
         {
-            thrust::copy(u.begin(), u.end(), res.begin());
-            return SOLVE_SUCCESSFUL;
+            matrix_sparse M_alpha_f;
+            nvtxRangePushA("submatrix");
+            if (sparse) {
+                sparse_submatrix(N, f, alpha, M_alpha_f);
+            } else {
+                submatrix(N, M, alpha, M_alpha);
+            }
+            nvtxRangePop();
+
+            nvtxRangePushA("subvector");
+            subvector(N, q, alpha, q_alpha);
+            nvtxRangePop();
+
+            nvtxRangePushA("solve");
+            thrust::device_vector<double> u_alpha(alpha.size());
+            if (!sparse && alpha.size() > 0) {
+                int solve_status = solve_dense_linear_system(
+                alpha.size(),
+                M_alpha, 
+                q_alpha, 
+                u_alpha, 
+                dn_params);
+
+                if (solve_status != 0) {
+                    thrust::device_vector<double> grad;
+
+                    gradient_step(N, -1, z_v, w, alpha, gamma, M, q, handle);
+                    continue;
+                }
+            } else if(alpha.size() > 0) {
+                int solve_status = sparse_solve(alpha.size(), M_alpha_f, q_alpha, u_alpha);
+            }
+            nvtxRangePop();
+            nvtxRangePushA("get_u");
+            ::cuda::std::negate<double> minus;
+            thrust::transform(u_alpha.begin(), u_alpha.end(), u_alpha.begin(), minus);
+            scatter_vector(N, u_alpha, alpha, u);
+            nvtxRangePop();
+
+            nvtxRangePushA("eval_linear");
+            if (!sparse) {
+                eval_linear(N, M, q, u, phi, handle);
+            } else {
+                eval_linear_sparse(N, f, q, u, phi, sparse_handle);
+            }
+            nvtxRangePop();
+            // 3. check for termination
+
+            nvtxRangePushA("get_merit");
+            if (solve_termination_test(N, u, phi, epsilon, handle))
+            {
+                thrust::copy(u.begin(), u.end(), res.begin());
+                nvtxRangePop();
+                cublasDestroy_v2(handle);
+                if (sparse) cusparseDestroy(sparse_handle);
+                // cout << v + 1 << endl;
+                return SOLVE_SUCCESSFUL;
+            }
+            nvtxRangePop();
         }
-        nvtxRangePop();
+        
         // 4.1 find rhos
         nvtxRangePushA("get_rhos");
         thrust::device_vector<double> rhos;
@@ -554,6 +569,9 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
             int status = gradient_step(N, -1e-2, z_v, w, alpha, gamma, M, q, handle);
             if (status == 1)
             {
+                nvtxRangePop();
+                cublasDestroy_v2(handle);
+                if (sparse) cusparseDestroy(sparse_handle);
                 return STATIONARY_POINT_FOUND;
             }
             continue;
@@ -563,6 +581,9 @@ SOLVER_RESULT LCP_Newton(int N, bool sparse, matrix_sparse &f, matrix_dense &M, 
         thrust::copy(new_w.begin(), new_w.end(), w.begin());
         nvtxRangePop();
     }
+    cublasDestroy_v2(handle);
+    if (sparse)
+        cusparseDestroy(sparse_handle);
     return TERMINATION_LIMIT;
 }
 

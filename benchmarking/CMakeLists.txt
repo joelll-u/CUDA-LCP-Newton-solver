@@ -32,3 +32,10 @@ target_link_libraries(profiling cuLCP_Newton Thrust)
 
 
 set_property(TARGET profiling PROPERTY CUDA_ARCHITECTURES 80)
+
+add_executable(avg_iters avg_iters.cu)
+target_include_directories(avg_iters PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(avg_iters cuLCP_Newton Thrust)
+
+
+set_property(TARGET avg_iters PROPERTY CUDA_ARCHITECTURES 80)

@@ -26,13 +26,13 @@ int bimatrix_game(int n, unsigned int &seed) {
     double sigma = 0.75;
     double xi = 0.25;
 
-    SOLVER_RESULT status = LCP_Newton(2 * n, M, q, z_0, epsilon, xi, sigma, z);
+    // SOLVER_RESULT status = LCP_Newton(2 * n, M, q, z_0, epsilon, xi, sigma, z);
     cudaDeviceSynchronize();
-    if(status == SOLVE_SUCCESSFUL) {
-        return 0;
-    } else {
-        return 1;
-    }
+    // if(status == SOLVE_SUCCESSFUL) {
+    //     return 0;
+    // } else {
+    //     return 1;
+    // }
 
 }
 
@@ -81,16 +81,16 @@ int main() {
             double epsilon = 0.000001;
             double sigma = 0.75;
             double xi = 0.25;
-
-            SOLVER_RESULT status = LCP_Newton(degen_n, M_d, q_d, z_0, epsilon, xi, sigma, z);
+            
+            // SOLVER_RESULT status = LCP_Newton(degen_n, M_d, q_d, z_0, epsilon, xi, sigma, z);
             
             cudaDeviceSynchronize();
-            if (status == SOLVE_SUCCESSFUL && path_solved == 1) {
-                solved_count++;
-            } else if (status == SOLVE_SUCCESSFUL) {
-                solved_count++;
-                printf("Somehow better than path? \n");
-            }
+            // if (status == SOLVE_SUCCESSFUL && path_solved == 1) {
+            //     solved_count++;
+            // } else if (status == SOLVE_SUCCESSFUL) {
+            //     solved_count++;
+            //     printf("Somehow better than path? \n");
+            // }
 
         }
         printf("Solved %d/%d with sparsity %f and n=%d\n", solved_count, feasible_count, i, degen_n);

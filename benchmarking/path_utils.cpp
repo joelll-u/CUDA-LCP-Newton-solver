@@ -178,6 +178,44 @@ void initializeM_sparse(const std::vector<double> &m, int n)
     // std::cout << Eigen::MatrixXd(m_eigen_sparse) << std::endl;
 }
 
+void initializeM_from_sparse_symmetric(host_matrix_sparse &x, int n) {
+
+    col_start_.clear();
+    mdata.clear();
+    row_.clear();
+    col_len_.clear();
+
+    for (int i = 0; i < x.row_offsets.size() - 1; i++) {
+        col_start_.push_back(x.row_offsets[i] + 1);
+        col_len_.push_back(x.row_offsets[i+1] - x.row_offsets[i]);
+    }
+    
+    for(int i = 0; i < x.column_indices.size(); i++ ){
+        row_.push_back(x.column_indices[i] + 1);
+        mdata.push_back(x.values[i]);
+    }
+    nnz_ = x.values.size();
+    sparse = true;
+    size_ = x.row_offsets.size() - 1;
+
+    std::vector<Eigen::Triplet<double>> triplets;
+    for (int i = 0; i < n; i++)
+    {
+        int colStart = col_start_[i] - 1;    // Convert to 0-based
+        int colEnd = col_len_[i] + colStart; // Convert to 0-based
+
+        for (int j = colStart; j < colEnd; j++)
+        {
+            int row = row_[j] - 1; // Convert to 0-based
+            triplets.emplace_back(row, i, mdata[j]);
+        }
+    }
+
+    m_eigen_sparse.resize(n, n);
+    m_eigen_sparse.setFromTriplets(triplets.begin(), triplets.end());
+    m_eigen_sparse.makeCompressed();
+}
+
 void initializeQ(const std::vector<double> q, int n)
 {
     q_eigen = Eigen::Map<const Eigen::VectorXd>(q.data(), q.size());

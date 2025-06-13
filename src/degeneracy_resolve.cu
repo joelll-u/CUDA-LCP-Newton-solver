@@ -62,10 +62,11 @@ void gradient(int n, thrust::device_vector<double> &z, thrust::device_vector<dou
 }
 
 int gradient_step(int n, double step_size, thrust::device_vector<double> &z, thrust::device_vector<double> &w, thrust::device_vector<int> &alpha, thrust::device_vector<int> &gamma, thrust::device_vector<double> &M, thrust::device_vector<double> &q, cublasHandle_t &handle) {
-    thrust::device_vector<int> old_alpha(alpha.begin(), alpha.end());
+    thrust::device_vector<int> new_alpha(alpha.begin(), alpha.end());
+    thrust::device_vector<int> new_gamma(gamma.begin(), gamma.end());
     for (int i = 0; i < 100; i++) {
         thrust::device_vector<double> grad;
-        gradient(n, z, w, alpha, gamma, M, handle, grad);
+        gradient(n, z, w, new_alpha, new_gamma, M, handle, grad);
         if (thrust::all_of(
                 grad.begin(),
                 grad.end(),
@@ -77,9 +78,9 @@ int gradient_step(int n, double step_size, thrust::device_vector<double> &z, thr
                 }
         cublasDaxpy(handle, n, &step_size, grad.data().get(), 1, z.data().get(), 1);
         eval_linear(n, M, q, z, w, handle);
-        alpha_set(n, z, w, alpha, gamma);
+        alpha_set(n, z, w, new_alpha, new_gamma);
 
-        if (!(alpha == old_alpha || !norm_termination_test(n, z, w, 1e5, handle))) {
+        if (!(new_alpha == alpha || !norm_termination_test(n, z, w, 1e5, handle))) {
             return 0;
         }
     }
